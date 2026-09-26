@@ -1,0 +1,17 @@
+{
+  "name": "Caixa — controle financeiro",
+  "short_name": "Caixa",
+  "description": "Controle de gastos, faturas de cartão, orçamento e metas, com os dados na sua planilha do Google.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#EDEFE8",
+  "theme_color": "#1D6B4F",
+  "lang": "pt-BR",
+  "icons": [
+    { "src": "icone-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icone-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icone-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
