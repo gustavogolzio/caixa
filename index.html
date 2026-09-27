@@ -1,16 +1,8 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
+<base target="_top">
 <meta charset="utf-8">
-<title>Caixa</title>
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#1D6B4F">
-<meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Caixa">
-<link rel="manifest" href="manifest.json">
-<link rel="apple-touch-icon" href="icone-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
@@ -28,9 +20,18 @@
 html,body{margin:0;padding:0}
 body{background:var(--paper);color:var(--ink);font-family:"IBM Plex Sans",system-ui,sans-serif;
   font-size:15px;line-height:1.45;-webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums;
+  /* o toque não seleciona texto nem abre o menu de copiar — comportamento de app, não de página */
+  -webkit-user-select:none;user-select:none;
+  -webkit-touch-callout:none;
+  -webkit-tap-highlight-color:transparent;
   padding-bottom:calc(74px + env(safe-area-inset-bottom));}
 h1,h2{font-family:"Bricolage Grotesque","IBM Plex Sans",sans-serif;font-weight:700;letter-spacing:-.015em;margin:0}
 button{font:inherit;color:inherit;cursor:pointer}
+/* campos de digitação continuam selecionáveis, senão não dá para editar */
+input,select,textarea{-webkit-user-select:text;user-select:text}
+/* valores em dinheiro: toque longo ainda copia, para quando você quiser conferir */
+.saldo,.fatura,.v,.stat b{-webkit-user-select:text;user-select:text}
+
 input,select{font:inherit;color:inherit}
 :focus-visible{outline:2px solid var(--green);outline-offset:2px;border-radius:6px}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
@@ -46,10 +47,10 @@ main{padding:16px 16px 24px;max-width:640px;margin:0 auto}
 
 .ribbon{margin:0 0 14px}
 .figs{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:10px}
-.saldo{font-family:"Bricolage Grotesque";font-weight:800;font-size:34px;letter-spacing:-.03em;line-height:1}
+.saldo{font-family:"Bricolage Grotesque";font-weight:800;font-size:34px;letter-spacing:-.03em;line-height:1;font-variant-numeric:normal}
 .saldo.neg{color:var(--rust)} .saldo.pos{color:var(--green)}
 .figs .sub{font-size:12px;color:var(--ink-soft);text-align:right}
-.bar{display:flex;height:16px;border-radius:5px;overflow:hidden;background:var(--surface-2);border:1px solid var(--line)}
+.bar{display:flex;gap:2px;height:16px;border-radius:5px;overflow:hidden;background:var(--paper);border:1px solid var(--line)}
 .bar span{display:block;height:100%}
 .legend{display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:9px;font-size:12px;color:var(--ink-soft)}
 .legend i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:5px;vertical-align:middle}
@@ -91,7 +92,7 @@ main{padding:16px 16px 24px;max-width:640px;margin:0 auto}
   border-left:4px solid var(--line)}
 .cartao .ch{display:flex;align-items:center;gap:9px;margin-bottom:3px}
 .cartao .ch b{flex:1;font-family:"Bricolage Grotesque";font-size:15px;font-weight:700}
-.fatura{font-family:"Bricolage Grotesque";font-size:26px;font-weight:800;letter-spacing:-.02em;line-height:1.1}
+.fatura{font-family:"Bricolage Grotesque";font-size:26px;font-weight:800;letter-spacing:-.02em;line-height:1.1;font-variant-numeric:normal}
 .venc{font-size:12px;color:var(--ink-soft);margin-bottom:10px}
 .venc.perto{color:var(--rust);font-weight:600}
 .fut{display:flex;align-items:center;gap:9px;padding:7px 0;border-top:1px solid var(--line);font-size:13px}
@@ -140,6 +141,30 @@ input,select{width:100%;padding:11px 12px;border:1px solid var(--line);backgroun
 .tiny{font-size:12px;color:var(--ink-soft)}
 .status{font-size:11px;color:var(--ink-soft);text-align:center;padding:4px 0 16px}
 .hide{display:none}
+/* ---- gráficos ---- */
+:root{
+  --graf-real:#9C3B2E;      /* despesa já realizada */
+  --graf-prev:#2A6DB8;      /* despesa prevista (parcelas e fixos à frente) */
+  --graf-grade:#D2D8C9;
+}
+@media (prefers-color-scheme:dark){
+  :root{--graf-real:#CF7361;--graf-prev:#5A93D6;--graf-grade:#2F3A33}
+}
+.graf{width:100%;height:auto;display:block;overflow:visible;touch-action:manipulation}
+.graf text{font-family:"IBM Plex Sans",system-ui,sans-serif;font-variant-numeric:tabular-nums}
+.graf .hit{fill:transparent}
+.tl-legenda{display:flex;gap:14px;margin-top:8px;font-size:11.5px;color:var(--ink-soft)}
+.tl-legenda span{display:flex;align-items:center;gap:5px}
+.tl-legenda i{width:10px;height:10px;border-radius:2px;display:block}
+.leitura{margin-top:11px;padding-top:11px;border-top:1px solid var(--line)}
+.leitura .qual{font-family:"Bricolage Grotesque","IBM Plex Sans",sans-serif;font-weight:700;font-size:14px}
+.leitura .nums{font-size:13px;color:var(--ink-soft);margin-top:3px}
+.leitura .nums b{color:var(--ink);font-weight:600}
+.leitura .ir{margin-top:9px;padding:7px 12px;border:1px solid var(--line);background:var(--paper);
+  border-radius:999px;font-size:12.5px;color:var(--ink-soft)}
+.bar span{transition:opacity .12s}
+.bar span.apagado{opacity:.3}
+.budget-row.marcada{background:var(--surface-2);border-radius:10px;padding-left:7px;padding-right:7px}
 #toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(94px + env(safe-area-inset-bottom));
   background:var(--ink);color:var(--paper);padding:9px 15px;border-radius:999px;font-size:13px;z-index:50;display:none}
 #toast.on{display:block}
@@ -171,45 +196,9 @@ input,select{width:100%;padding:11px 12px;border:1px solid var(--line);backgroun
 <div id="toast"></div>
 
 <script>
-/* ---------- conexão com o Apps Script ---------- */
-
-const CFG = {
-  url: localStorage.getItem('caixa_url') || '',
-  token: localStorage.getItem('caixa_token') || ''
-};
-let offline = false;
-
-/* nomes dos parâmetros de cada ação, para manter as chamadas posicionais */
-const ARGS = {
-  ping: [], getTudo: [],
-  addLanc: ['itens'], updLanc: ['id', 'campos'], substituirLanc: ['id', 'grupo', 'itens'], delLanc: ['id', 'grupo'],
-  salvarCartao: ['c'], delCartao: ['id'], salvarConta: ['c'], delConta: ['id'],
-  salvarCategoria: ['c'], delCategoria: ['id', 'mover'],
-  addPagamento: ['p'], delPagamento: ['id'],
-  setOrc: ['catId', 'limite'], addMeta: ['m'], updMeta: ['id', 'guardado'], delMeta: ['id']
-};
-
-async function chamar(acao, args, cfg) {
-  const c = cfg || CFG;
-  if (!c.url) throw new Error('Conexão não configurada.');
-  if (navigator.onLine === false) throw new Error('Sem internet.');
-  // text/plain evita o preflight OPTIONS, que o Apps Script não responde
-  const r = await fetch(c.url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify({ token: c.token, acao: acao, args: args || {} }),
-    redirect: 'follow'
-  });
-  if (!r.ok) throw new Error('Servidor respondeu ' + r.status + '.');
-  let j;
-  try { j = await r.json(); }
-  catch (e) { throw new Error('Resposta inesperada — confira se a implantação está como "Qualquer pessoa".'); }
-  if (j.erro) throw new Error(j.erro);
-  return j.dados;
-}
-
-const api = (fn, ...vals) =>
-  chamar(fn, (ARGS[fn] || []).reduce((o, k, i) => { o[k] = vals[i]; return o; }, {}));
+const api = (fn, ...args) => new Promise((res, rej) => {
+  google.script.run.withSuccessHandler(res).withFailureHandler(rej)[fn](...args);
+});
 
 let D = { lanc: [], cats: [], cartoes: [], contas: [], pagamentos: [], orcs: {}, metas: [] };
 let cursor = new Date(), tab = 'resumo';
@@ -318,31 +307,14 @@ function toast(msg) {
   setTimeout(() => t.classList.remove('on'), 2200);
 }
 
-function salvarCache() {
-  try { localStorage.setItem('caixa_dados', JSON.stringify(D)); localStorage.setItem('caixa_cache_em', new Date().toISOString()); }
-  catch (e) {}
-}
-
 async function carregar() {
-  // mostra o que já tem guardado, para abrir instantâneo e funcionar offline
-  const cache = localStorage.getItem('caixa_dados');
-  if (cache) { try { D = JSON.parse(cache); render(); } catch (e) {} }
-
-  try {
-    D = await api('getTudo');
-    offline = false;
-    salvarCache();
-    render();
-  } catch (e) {
-    offline = true;
-    if (cache) { render(); toast('Offline — mostrando os dados guardados'); }
-    else {
-      document.getElementById('view').innerHTML =
-        '<div class="card"><div class="empty"><b>Não consegui conectar</b>' + esc(e.message || e) +
-        '</div><button class="ghost" id="reconfig">Rever a conexão</button></div>';
-      const b = document.getElementById('reconfig'); if (b) b.onclick = () => telaConexao();
-    }
+  try { D = await api('getTudo'); }
+  catch (e) {
+    document.getElementById('view').innerHTML =
+      '<div class="card"><div class="empty"><b>Não consegui ler a planilha</b>' + esc(e.message || e) + '</div></div>';
+    return;
   }
+  render();
 }
 
 function render() {
@@ -350,17 +322,116 @@ function render() {
   document.getElementById('mtitle').firstChild.nodeValue = MES[cursor.getMonth()];
   document.getElementById('msub').textContent = cursor.getFullYear();
   document.querySelectorAll('nav button').forEach(b => b.setAttribute('aria-current', String(b.dataset.tab === tab)));
-  const aviso = offline
-    ? '<div class="aviso" style="margin-bottom:12px;background:var(--rust-soft,var(--ochre-soft))">' +
-      'Sem internet. Você pode consultar, mas não lançar nem editar até voltar a conexão.</div>'
-    : '';
-  document.getElementById('view').innerHTML = aviso +
+  document.getElementById('view').innerHTML =
     ({resumo:vResumo, lanc:vLanc, carteira:vCarteira, orc:vOrc, metas:vMetas})[tab](k);
   wire(k);
-  if (!offline) salvarCache();
 }
 
 /* ---------- telas ---------- */
+
+/* ---------- gráficos que respondem ao toque ---------- */
+
+let selMes = null;   // mês selecionado na linha do tempo
+let selCat = null;   // categoria selecionada na barra de composição
+
+const mesCurto = d => MES[d.getMonth()].slice(0, 3);
+const semCents = n => Math.round(n).toLocaleString('pt-BR');
+
+/** Linha do tempo de despesas: 5 meses atrás, o mês visto e 6 à frente. */
+function linhaDoTempo(k) {
+  const hojeMes = mk(new Date());
+  const ms = [];
+  for (let i = -5; i <= 6; i++) {
+    const d = new Date(cursor.getFullYear(), cursor.getMonth() + i, 1);
+    const kk = mk(d);
+    const s = somaMes(kk);
+    ms.push({ k: kk, d: d, rec: s.rec, des: s.des, saldo: s.saldo, futuro: kk > hojeMes });
+  }
+  if (!ms.some(m => m.des > 0)) return '';
+
+  const sel = ms.find(m => m.k === (selMes || k)) || ms.find(m => m.k === k);
+  const max = Math.max(...ms.map(m => m.des));
+
+  const W = 360, H = 180, padL = 4, padR = 4, padT = 34, padB = 28;
+  const alt = H - padT - padB;
+  const slot = (W - padL - padR) / ms.length;
+  const larg = Math.min(20, slot - 8);
+  const base = padT + alt;
+  const y = v => base - (max ? (v / max) * alt : 0);
+
+  // topo arredondado, pé quadrado
+  function coluna(x, v, cor) {
+    const h = base - y(v);
+    if (h <= 0.5) return '';
+    const r = Math.min(4, h / 2);
+    return '<path d="M' + x + ',' + base + ' V' + (y(v) + r) +
+      ' Q' + x + ',' + y(v) + ' ' + (x + r) + ',' + y(v) +
+      ' H' + (x + larg - r) + ' Q' + (x + larg) + ',' + y(v) + ' ' + (x + larg) + ',' + (y(v) + r) +
+      ' V' + base + ' Z" fill="' + cor + '"/>';
+  }
+
+  let svg = '';
+
+  // grade: uma hairline no máximo, com o valor
+  svg += '<line x1="' + padL + '" y1="' + y(max) + '" x2="' + (W - padR) + '" y2="' + y(max) +
+    '" stroke="var(--graf-grade)" stroke-width="1"/>';
+  if (!sel || Math.abs(sel.des - max) > 0.5) {
+    svg += '<text x="' + padL + '" y="12" font-size="9.5" fill="var(--ink-soft)">máx R$ ' + semCents(max) + '</text>';
+  }
+  svg += '<line x1="' + padL + '" y1="' + base + '" x2="' + (W - padR) + '" y2="' + base +
+    '" stroke="var(--graf-grade)" stroke-width="1"/>';
+
+  // divisória do mês corrente
+  const iHoje = ms.findIndex(m => m.k === hojeMes);
+  if (iHoje > -1 && iHoje < ms.length - 1) {
+    const xd = padL + (iHoje + 1) * slot;
+    svg += '<line x1="' + xd + '" y1="' + (padT - 16) + '" x2="' + xd + '" y2="' + (base + 5) +
+      '" stroke="var(--ink-soft)" stroke-width="1"/>';
+    svg += '<text x="' + xd + '" y="12" font-size="8.5" text-anchor="middle" fill="var(--ink-soft)">hoje</text>';
+  }
+
+  ms.forEach((m, i) => {
+    const x = padL + i * slot + (slot - larg) / 2;
+    svg += coluna(x, m.des, m.futuro ? 'var(--graf-prev)' : 'var(--graf-real)');
+
+    // rótulo do mês
+    svg += '<text x="' + (x + larg / 2) + '" y="' + (base + 13) + '" font-size="8.5" text-anchor="middle" fill="var(--ink-soft)">' +
+      mesCurto(m.d) + '</text>';
+    if (m.d.getMonth() === 0) {
+      svg += '<text x="' + (x + larg / 2) + '" y="' + (base + 23) + '" font-size="8" text-anchor="middle" fill="var(--ink-soft)">' +
+        String(m.d.getFullYear()).slice(2) + '</text>';
+    }
+
+    // só o mês selecionado recebe rótulo de valor e marca no eixo
+    if (sel && m.k === sel.k) {
+      if (m.des > 0) {
+        svg += '<text x="' + (x + larg / 2) + '" y="' + (y(m.des) - 6) + '" font-size="10.5" font-weight="600" ' +
+          'text-anchor="middle" fill="var(--ink)">' + semCents(m.des) + '</text>';
+      }
+      svg += '<rect x="' + x + '" y="' + (base + 2) + '" width="' + larg + '" height="3" rx="1.5" fill="var(--ink)"/>';
+    }
+
+    // área de toque: o vão inteiro, não só a coluna pintada
+    svg += '<rect class="hit" data-mes="' + m.k + '" x="' + (padL + i * slot) + '" y="' + (padT - 12) +
+      '" width="' + slot + '" height="' + (alt + 24) + '"/>';
+  });
+
+  let leitura = '';
+  if (sel) {
+    const nome = MES[sel.d.getMonth()] + ' ' + sel.d.getFullYear();
+    leitura = '<div class="leitura"><div class="qual">' + nome + (sel.futuro ? ' · previsto' : '') + '</div>' +
+      '<div class="nums">entrou <b>' + brl(sel.rec) + '</b> · saiu <b>' + brl(sel.des) + '</b> · sobra <b>' + brl(sel.saldo) + '</b></div>' +
+      (sel.k !== k ? '<button class="ir" data-ir="' + sel.k + '">Abrir ' + MES[sel.d.getMonth()] + '</button>' : '') +
+      '</div>';
+  }
+
+  return '<div class="card"><h2>Despesas mês a mês <em>toque numa coluna</em></h2>' +
+    '<svg class="graf" viewBox="0 0 ' + W + ' ' + H + '" role="img" ' +
+    'aria-label="Despesas por mês, de ' + mesCurto(ms[0].d) + ' a ' + mesCurto(ms[ms.length-1].d) + '">' + svg + '</svg>' +
+    '<div class="tl-legenda"><span><i style="background:var(--graf-real)"></i>realizado</span>' +
+    '<span><i style="background:var(--graf-prev)"></i>previsto</span></div>' +
+    leitura + '</div>';
+}
 
 function vResumo(k) {
   const t = somaMes(k), L = doMes(k);
@@ -370,16 +441,14 @@ function vResumo(k) {
   L.filter(x => x.tipo === 'despesa').forEach(x => porCat[x.catId] = (porCat[x.catId] || 0) + x.valor);
   const cats = Object.entries(porCat).sort((a, b) => b[1] - a[1]);
   const tot = t.des || 1;
-  const barras = cats.map(([id, v]) => '<span style="width:' + (v/tot*100).toFixed(2) + '%;background:' + cat(id).cor + '"></span>').join('');
-  const leg = cats.slice(0, 5).map(([id, v]) => '<span><i style="background:' + cat(id).cor + '"></i>' + cat(id).nome + ' ' + brl(v) + '</span>').join('');
-
-  const fut = [];
-  for (let i = 1; i <= 6; i++) {
-    const d = new Date(cursor.getFullYear(), cursor.getMonth() + i, 1);
-    const s = somaMes(mk(d));
-    if (s.des > 0) fut.push({ d: d, des: s.des });
-  }
-  const maxF = Math.max(1, ...fut.map(f => f.des));
+  if (selCat && !porCat[selCat]) selCat = null;
+  const barras = cats.map(([id, v]) =>
+    '<span data-seg="' + id + '" class="' + (selCat && selCat !== id ? 'apagado' : '') + '" style="width:' +
+    (v/tot*100).toFixed(2) + '%;background:' + cat(id).cor + '"></span>').join('');
+  const leg = selCat
+    ? '<span><i style="background:' + cat(selCat).cor + '"></i>' + esc(cat(selCat).nome) + ' ' +
+      brl(porCat[selCat]) + ' · ' + (porCat[selCat]/tot*100).toFixed(0) + '% do mês</span>'
+    : cats.slice(0, 5).map(([id, v]) => '<span><i style="background:' + cat(id).cor + '"></i>' + esc(cat(id).nome) + ' ' + brl(v) + '</span>').join('');
 
   return '<section class="ribbon"><div class="figs"><div>' +
     '<div class="saldo ' + (t.saldo < 0 ? 'neg' : 'pos') + '">' + brl(t.saldo) + '</div>' +
@@ -393,6 +462,8 @@ function vResumo(k) {
     '<div class="duo"><div class="stat"><b>' + brl(aVista) + '</b><small>à vista (Pix, débito, dinheiro)</small></div>' +
     '<div class="stat"><b>' + brl(noCartao) + '</b><small>nas faturas de cartão</small></div></div>' +
 
+    linhaDoTempo(k) +
+
     (D.contas.length ? '<div class="card"><h2>Saldo em conta <em>posição de hoje</em></h2>' +
       D.contas.map(c => {
         const s = saldoConta(c.id);
@@ -404,18 +475,13 @@ function vResumo(k) {
     '<div class="card"><h2>Por categoria <em>' + cats.length + ' ativa' + (cats.length === 1 ? '' : 's') + '</em></h2>' +
     (cats.length ? cats.map(([id, v]) => {
       const c = cat(id), o = D.orcs[id] || 0;
-      return '<div class="budget-row"><div class="budget-head">' +
+      return '<div class="budget-row clic' + (selCat === id ? ' marcada' : '') + '" data-seg="' + id + '"><div class="budget-head">' +
         '<span class="dot" style="background:' + c.cor + '22;color:' + c.cor + '">' + c.icone + '</span>' +
-        '<span class="t">' + c.nome + '</span>' +
+        '<span class="t">' + esc(c.nome) + '</span>' +
         '<span class="n ' + (o && v > o ? 'over' : '') + '">' + brl(v) + (o ? ' / ' + brl(o) : '') + '</span></div>' +
         (o ? '<div class="prog"><span style="width:' + Math.min(100, v/o*100) + '%;background:' + (v > o ? 'var(--rust)' : c.cor) + '"></span></div>' : '') +
         '</div>';
     }).join('') : '<div class="empty"><b>Competência em branco</b>Toque no + para lançar.</div>') + '</div>' +
-
-    (fut.length ? '<div class="card"><h2>Já comprometido à frente <em>parcelas e fixos</em></h2>' +
-      fut.map(f => '<div class="fut"><span class="m">' + MES[f.d.getMonth()].slice(0,3) + '/' + String(f.d.getFullYear()).slice(2) + '</span>' +
-      '<span class="pb"><span style="width:' + (f.des/maxF*100).toFixed(1) + '%;background:var(--ochre)"></span></span>' +
-      '<span class="pv">' + brl(f.des) + '</span></div>').join('') + '</div>' : '') +
     '<div class="status">Salvo na sua planilha do Google.</div>';
 }
 
@@ -506,12 +572,7 @@ function vCarteira(k) {
         '<span class="v" style="color:' + (s < 0 ? 'var(--rust)' : 'inherit') + '">' + brl(s) + '</span>' +
         '<button class="chip" data-edconta="' + c.id + '">editar</button></div>';
     }).join('') +
-    '<button class="ghost" id="novaconta">Adicionar conta</button></div>' +
-
-    '<div class="card"><h2>Conexão</h2>' +
-    '<p class="tiny" style="margin:0 0 10px">' + (offline ? 'Offline. ' : 'Conectado. ') +
-    'Os dados ficam na sua planilha do Google.</p>' +
-    '<button class="ghost" id="btconexao" style="margin-top:0">Rever URL e token</button></div>';
+    '<button class="ghost" id="novaconta">Adicionar conta</button></div>';
 
   return html;
 }
@@ -577,13 +638,25 @@ function wire(k) {
     render();
     try { await api('setOrc', inp.dataset.orc, v); } catch (e) { toast('Erro ao salvar teto'); }
   });
+  document.querySelectorAll('[data-mes]').forEach(b => b.onclick = () => {
+    selMes = (selMes === b.dataset.mes) ? null : b.dataset.mes;
+    render();
+  });
+  document.querySelectorAll('[data-ir]').forEach(b => b.onclick = () => {
+    const p = b.dataset.ir.split('-');
+    cursor = new Date(Number(p[0]), Number(p[1]) - 1, 1);
+    selMes = null; selCat = null; render();
+  });
+  document.querySelectorAll('[data-seg]').forEach(b => b.onclick = () => {
+    selCat = (selCat === b.dataset.seg) ? null : b.dataset.seg;
+    render();
+  });
   const nm = document.getElementById('novameta'); if (nm) nm.onclick = sheetMeta;
   document.querySelectorAll('[data-edcat]').forEach(b => b.onclick = () => sheetCategoria(b.dataset.edcat));
   const ncd = document.getElementById('novacat-despesa'); if (ncd) ncd.onclick = () => sheetCategoria(null, 'despesa');
   const ncr = document.getElementById('novacat-receita'); if (ncr) ncr.onclick = () => sheetCategoria(null, 'receita');
   const nc = document.getElementById('novocartao'); if (nc) nc.onclick = () => sheetCartao(null);
   const nk = document.getElementById('novaconta'); if (nk) nk.onclick = () => sheetConta(null);
-  const bc = document.getElementById('btconexao'); if (bc) bc.onclick = () => telaConexao();
   document.querySelectorAll('[data-edcartao]').forEach(b => b.onclick = () => sheetCartao(b.dataset.edcartao));
   document.querySelectorAll('[data-pagar]').forEach(b => b.onclick = () => sheetPagamento(b.dataset.pagar, k));
   document.querySelectorAll('[data-delpag]').forEach(b => b.onclick = async () => {
@@ -1151,72 +1224,12 @@ function sheetMeta() {
   };
 }
 
-/* ---------- tela de pareamento ---------- */
-
-function telaConexao(primeira) {
-  document.querySelector('nav').style.display = 'none';
-  document.getElementById('fab').style.display = 'none';
-  document.getElementById('mtitle').firstChild.nodeValue = 'Caixa';
-  document.getElementById('msub').textContent = 'conexão';
-
-  document.getElementById('view').innerHTML =
-    '<div class="card">' +
-    '<h2>' + (primeira ? 'Conectar à sua planilha' : 'Conexão') + '</h2>' +
-    '<p class="tiny" style="margin:0 0 4px">Cole o endereço do seu app do Apps Script e o token que você gerou. ' +
-    'Eles ficam guardados só neste aparelho — não vão para a internet nem para o repositório.</p>' +
-    '<label for="cx-url">URL do app da web</label>' +
-    '<input id="cx-url" type="url" inputmode="url" placeholder="https://script.google.com/macros/s/.../exec" value="' + esc(CFG.url) + '">' +
-    '<label for="cx-token">Token</label>' +
-    '<input id="cx-token" placeholder="cole aqui o token" value="' + esc(CFG.token) + '">' +
-    '<div class="aviso" id="cx-aviso">Quem tiver esta URL e este token consegue ver e alterar seus dados. Trate como senha.</div>' +
-    '<button class="primary" id="cx-testar">Conectar</button>' +
-    (CFG.url && !primeira ? '<button class="ghost" id="cx-voltar">Voltar</button>' : '') +
-    '</div>';
-
-  const vb = document.getElementById('cx-voltar');
-  if (vb) vb.onclick = () => { document.querySelector('nav').style.display = ''; document.getElementById('fab').style.display = ''; render(); };
-
-  document.getElementById('cx-testar').onclick = async function () {
-    const url = document.getElementById('cx-url').value.trim();
-    const token = document.getElementById('cx-token').value.trim();
-    const av = document.getElementById('cx-aviso');
-    if (!url || !token) { av.textContent = 'Preencha os dois campos.'; return; }
-    if (url.indexOf('/exec') === -1) {
-      av.textContent = 'A URL precisa terminar em /exec. Se termina em /dev, você copiou o endereço de teste.';
-      return;
-    }
-    this.disabled = true; this.textContent = 'Testando…';
-    av.textContent = 'Falando com o Apps Script…';
-    try {
-      await chamar('ping', {}, { url: url, token: token });
-      localStorage.setItem('caixa_url', url);
-      localStorage.setItem('caixa_token', token);
-      CFG.url = url; CFG.token = token;
-      document.querySelector('nav').style.display = '';
-      document.getElementById('fab').style.display = '';
-      toast('Conectado');
-      carregar();
-    } catch (e) {
-      this.disabled = false; this.textContent = 'Conectar';
-      av.textContent = 'Não deu certo: ' + (e.message || e);
-    }
-  };
-}
-
-/* ---------- partida ---------- */
-
 document.getElementById('fab').onclick = () => sheetLanc(null);
-window.addEventListener('online', () => { offline = false; carregar(); });
-window.addEventListener('offline', () => { offline = true; render(); });
-
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
-}
-document.getElementById('prev').onclick = () => { cursor = new Date(cursor.getFullYear(), cursor.getMonth()-1, 1); render(); };
-document.getElementById('next').onclick = () => { cursor = new Date(cursor.getFullYear(), cursor.getMonth()+1, 1); render(); };
+document.getElementById('prev').onclick = () => { cursor = new Date(cursor.getFullYear(), cursor.getMonth()-1, 1); selMes = null; selCat = null; render(); };
+document.getElementById('next').onclick = () => { cursor = new Date(cursor.getFullYear(), cursor.getMonth()+1, 1); selMes = null; selCat = null; render(); };
 document.querySelectorAll('nav button').forEach(b => b.onclick = () => { tab = b.dataset.tab; render(); });
 
-if (CFG.url && CFG.token) carregar(); else telaConexao(true);
+carregar();
 </script>
 </body>
 </html>
