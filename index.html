@@ -220,6 +220,9 @@ html,body{overscroll-behavior:contain}
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{animation-duration:.01ms!important;animation-delay:0s!important;transition-duration:.01ms!important}
 }
+
+.voltar{background:none;border:0;color:var(--ink-soft);font-size:14px;font-weight:500;padding:6px 2px;margin:0 0 6px;display:block}
+.fat-topo .fatura{font-size:30px}
 </style>
 </head>
 <body>
@@ -332,6 +335,16 @@ function competenciaCartao(c, dataISO, somaMeses) {
 }
 const vencimentoDe = (c, comp) => comp + '-' + String(c.vencimento).padStart(2, '0');
 
+/** Dia em que a fatura passa a receber compras (e pode ser paga): o fechamento da fatura anterior. */
+function aberturaDe(c, comp) {
+  const p = comp.split('-').map(Number);
+  const mesFecha = (p[1] - 1) - (c.vencimento <= c.fechamento ? 1 : 0);   // mês em que ela fecha
+  const m = mesFecha - 1;                                                  // abriu no fechamento do mês anterior
+  const ult = new Date(p[0], m + 1, 0).getDate();
+  const d = new Date(p[0], m, Math.min(c.fechamento, ult));
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
 /** Soma meses a uma competência AAAA-MM. */
 function somaComp(comp, meses) {
   const p = comp.split('-').map(Number);
@@ -360,7 +373,8 @@ function situacao(c, comp) {
   else if (pago > 0) { estado = 'paga em parte · vencida'; cor = 'var(--rust)'; }
   else if (venc < hoje) { estado = 'vencida e não paga'; cor = 'var(--rust)'; }
   else { estado = 'em aberto'; cor = 'var(--ink-soft)'; }
-  return { total: total, pago: pago, resta: resta, venc: venc, estado: estado, cor: cor };
+  const abre = aberturaDe(c, comp);
+  return { total: total, pago: pago, resta: resta, venc: venc, estado: estado, cor: cor, abre: abre, pagavel: abre <= hoje };
 }
 
 /** Limite comprometido: tudo que foi lançado no cartão menos tudo que já foi pago. */
@@ -436,10 +450,11 @@ function render() {
   const anima = animarGraf; animarGraf = false;
   const k = mk(cursor);
   const todos = tab === 'lanc' && filtro.todos;
-  document.getElementById('mtitle').firstChild.nodeValue = todos ? 'Todos os meses' : MES[cursor.getMonth()];
-  document.getElementById('msub').textContent = todos ? '' : cursor.getFullYear();
-  document.getElementById('prev').disabled = todos;
-  document.getElementById('next').disabled = todos;
+  const det = tab === 'carteira' && cartaoAberto && cartao(cartaoAberto);
+  document.getElementById('mtitle').firstChild.nodeValue = det ? det.nome : todos ? 'Todos os meses' : MES[cursor.getMonth()];
+  document.getElementById('msub').textContent = det ? (faturaAberta ? MES[Number(faturaAberta.slice(5)) - 1] + ' ' + faturaAberta.slice(0, 4) : 'faturas') : todos ? '' : cursor.getFullYear();
+  document.getElementById('prev').disabled = todos || !!det;
+  document.getElementById('next').disabled = todos || !!det;
   document.querySelectorAll('nav button').forEach(b => b.setAttribute('aria-current', String(b.dataset.tab === tab)));
   const aviso = offline
     ? '<div class="aviso" style="margin-bottom:12px;background:var(--rust-soft,var(--ochre-soft))">' +
@@ -637,7 +652,7 @@ function blocoFaturas() {
     const abertas = comps.map(cp => ({ cp: cp, st: situacao(c, cp) })).filter(x => x.st.resta > 0.009);
     if (!abertas.length) return;
     const a = abertas[0], mais = abertas.slice(1);
-    linhas.push('<div class="row clic" data-vercart="' + a.cp + '"><span class="dot" style="background:' + c.cor + '22;color:' + c.cor + '">▭</span>' +
+    linhas.push('<div class="row clic" data-vercart="' + c.id + '|' + a.cp + '"><span class="dot" style="background:' + c.cor + '22;color:' + c.cor + '">▭</span>' +
       '<span class="t"><b>' + esc(c.nome) + '</b><small style="color:' + a.st.cor + '">vence ' + a.st.venc.split('-').reverse().join('/') +
       ' · ' + a.st.estado +
       (mais.length ? ' · +' + mais.length + ' fatura' + (mais.length === 1 ? '' : 's') + ' à frente (' + brl(mais.reduce((s, x) => s + x.st.resta, 0)) + ')' : '') +
@@ -832,7 +847,119 @@ function ligaCorpo() {
   });
 }
 
+/* ---------- faturas do cartão ---------- */
+
+let cartaoAberto = null, faturaAberta = null, mostrarPagas = false;
+
+function abrirCartao(id, comp) {
+  cartaoAberto = id; faturaAberta = comp || null; mostrarPagas = false;
+  try { history.pushState({ n: 1 }, ''); if (comp) history.pushState({ n: 2 }, ''); } catch (e) {}
+  render(); window.scrollTo(0, 0);
+  anima([{ transform: 'translateX(28px)', opacity: 0 }, { transform: 'none', opacity: 1 }], 220);
+}
+function abrirFatura(comp) {
+  faturaAberta = comp;
+  try { history.pushState({ n: 2 }, ''); } catch (e) {}
+  render(); window.scrollTo(0, 0);
+  anima([{ transform: 'translateX(28px)', opacity: 0 }, { transform: 'none', opacity: 1 }], 220);
+}
+window.addEventListener('popstate', () => {
+  if (faturaAberta) faturaAberta = null;
+  else if (cartaoAberto) cartaoAberto = null;
+  else return;
+  render(); window.scrollTo(0, 0);
+  anima([{ transform: 'translateX(-28px)', opacity: 0 }, { transform: 'none', opacity: 1 }], 220);
+});
+
+const rotuloComp = cp => { const m = MES[Number(cp.slice(5)) - 1]; return m.charAt(0).toUpperCase() + m.slice(1) + ' ' + cp.slice(0, 4); };
+const dataBR = iso => iso.split('-').reverse().join('/');
+
+function vCartaoFaturas(c) {
+  const comps = Array.from(new Set(
+    D.lanc.filter(t => t.cartao === c.id && t.tipo === 'despesa').map(t => t.comp)
+      .concat(D.pagamentos.filter(p => p.cartao === c.id).map(p => p.comp)))).sort();
+  const itens = comps.map(cp => ({ cp: cp, st: situacao(c, cp) })).filter(x => x.st.total > 0 || x.st.pago > 0);
+  const quitada = x => x.st.total > 0 && x.st.resta <= 0.009;
+  const pagas = itens.filter(quitada).reverse();
+  const abertas = itens.filter(x => !quitada(x));
+  const u = usado(c.id), disp = c.limite - u;
+  const linha = x => {
+    const st = x.st, ok = quitada(x);
+    return '<div class="row clic" data-fat="' + x.cp + '"><span class="dot" style="background:' + c.cor + '22;color:' + c.cor + '">▭</span>' +
+      '<span class="t"><b>' + rotuloComp(x.cp) + '</b>' +
+      '<small style="color:' + st.cor + '">vence ' + dataBR(st.venc) + ' · ' + st.estado +
+      (st.pago > 0 && !ok ? ' · pago ' + brl(st.pago) : '') + '</small></span>' +
+      '<span class="v" style="color:' + (ok ? 'var(--green)' : 'inherit') + '">' + brl(ok ? st.total : st.resta) + '</span>' +
+      '<span class="del" aria-hidden="true">&rsaquo;</span></div>';
+  };
+  return '<button class="voltar" data-voltar>‹ Cartões</button>' +
+    '<div class="cartao" style="border-left-color:' + c.cor + '">' +
+    '<div class="ch"><span class="dot" style="background:' + c.cor + '22;color:' + c.cor + '">▭</span><b>' + esc(c.nome) + '</b></div>' +
+    '<div class="venc">fecha dia ' + c.fechamento + ' · vence dia ' + c.vencimento + '</div>' +
+    (c.limite > 0 ?
+      '<div class="budget-head" style="margin-top:10px"><span class="t tiny">limite ' + brl(c.limite) + ' · usado ' + brl(u) + '</span>' +
+      '<span class="n' + (disp < 0 ? ' over' : '') + '">' + brl(disp) + ' livre</span></div>' +
+      '<div class="prog"><span style="width:' + Math.min(100, u / c.limite * 100) + '%;background:' + (disp < 0 ? 'var(--rust)' : c.cor) + '"></span></div>' : '') +
+    '</div>' +
+    '<div class="card"><h2>Faturas <em>toque para ver os lançamentos</em></h2>' +
+    (abertas.length ? abertas.map(linha).join('') : '<div class="empty"><b>' + (pagas.length ? 'Tudo pago' : 'Sem faturas ainda') + '</b>' +
+      (pagas.length ? 'Nenhuma fatura em aberto.' : 'Lance uma compra neste cartão para criar a primeira.') + '</div>') +
+    '</div>' +
+    (pagas.length ? '<button class="ghost" id="mais-pagas" style="margin-bottom:12px">' +
+      (mostrarPagas ? 'Esconder faturas pagas' : 'Ver faturas pagas (' + pagas.length + ')') + '</button>' : '') +
+    (mostrarPagas && pagas.length ? '<div class="card"><h2>Pagas <em>mais recentes primeiro</em></h2>' + pagas.map(linha).join('') + '</div>' : '');
+}
+
+function vFatura(c, cp) {
+  const st = situacao(c, cp), hoje = hojeISO();
+  const dias = Math.round((new Date(st.venc + 'T12:00:00') - new Date(hoje + 'T12:00:00')) / 86400000);
+  const L = D.lanc.filter(t => t.cartao === c.id && t.comp === cp && t.tipo === 'despesa').sort((a, b) => b.data.localeCompare(a.data));
+  const pagos = D.pagamentos.filter(p => p.cartao === c.id && p.comp === cp).sort((a, b) => a.data.localeCompare(b.data));
+  const porCat = {};
+  L.forEach(t => porCat[t.catId] = (porCat[t.catId] || 0) + t.valor);
+  const cats = Object.entries(porCat).sort((a, b) => b[1] - a[1]);
+  const tot = st.total || 1;
+
+  return '<button class="voltar" data-voltar>‹ Faturas de ' + esc(c.nome) + '</button>' +
+    '<div class="cartao fat-topo" style="border-left-color:' + c.cor + '">' +
+    '<div class="ch"><b>Fatura de ' + rotuloComp(cp) + '</b></div>' +
+    '<div class="fatura">' + brl(st.resta > 0 ? st.resta : st.total) + '</div>' +
+    '<div class="venc" style="color:' + st.cor + ';font-weight:' + (st.cor === 'var(--ink-soft)' ? '400' : '600') + '">' + st.estado +
+      (st.resta > 0.009 ? ' · falta pagar' : '') + '</div>' +
+    '<div class="venc">total ' + brl(st.total) + (st.pago > 0 ? ' · pago ' + brl(st.pago) : '') + '</div>' +
+    '<div class="venc">vence ' + dataBR(st.venc) +
+      (dias === 0 ? ' · hoje' : dias > 0 ? ' · em ' + dias + ' dia' + (dias === 1 ? '' : 's') : ' · há ' + (-dias) + ' dia' + (dias === -1 ? '' : 's')) + '</div>' +
+    (st.total > 0 && st.pagavel ? '<button class="chip" data-pagarfat="' + c.id + '" style="margin-top:8px">' +
+      (st.resta > 0.009 ? 'Registrar pagamento' : 'Pagar mais') + '</button>' : '') +
+    (st.total > 0 && !st.pagavel ? '<div class="venc" style="margin-top:8px">Fatura ainda não aberta · só pode ser paga a partir de ' + dataBR(st.abre) + '</div>' : '') +
+    (pagos.length ? '<div style="margin-top:8px">' + pagos.map(p =>
+      '<div class="row"><span class="dot" style="background:var(--green)22;color:var(--green)">✓</span>' +
+      '<span class="t"><b>' + dataBR(p.data) + '</b><small>' +
+      (p.obs ? esc(p.obs) + ' · ' : '') + (conta(p.conta) ? esc(conta(p.conta).nome) : 'conta principal') + '</small></span>' +
+      '<span class="v">' + brl(p.valor) + '</span>' +
+      '<button class="del" data-delpag="' + p.id + '">&#10005;</button></div>').join('') + '</div>' : '') +
+    '</div>' +
+
+    (cats.length ? '<div class="card"><h2>Por categoria <em>' + cats.length + ' na fatura</em></h2>' +
+      cats.map(([id, v]) => {
+        const ct = cat(id), pct = v / tot * 100;
+        return '<div class="budget-row"><div class="budget-head">' +
+          '<span class="dot" style="background:' + ct.cor + '22;color:' + ct.cor + '">' + ct.icone + '</span>' +
+          '<span class="t">' + esc(ct.nome) + '</span>' +
+          '<span class="n">' + brl(v) + ' · ' + (pct < 1 ? '<1' : pct.toFixed(0)) + '%</span></div>' +
+          '<div class="prog"><span style="width:' + pct.toFixed(1) + '%;background:' + ct.cor + '"></span></div></div>';
+      }).join('') + '</div>' : '') +
+
+    '<div class="mes-h" style="text-transform:none">Lançamentos<em>' + L.length + ' item' + (L.length === 1 ? '' : 's') + '</em></div>' +
+    (L.length ? diasHtml(L) : '<div class="card"><div class="empty"><b>Sem lançamentos</b>Esta fatura não tem compras no cartão.</div></div>');
+}
+
 function vCarteira(k) {
+  if (cartaoAberto) {
+    const cc = cartao(cartaoAberto);
+    if (cc) return faturaAberta ? vFatura(cc, faturaAberta) : vCartaoFaturas(cc);
+    cartaoAberto = null; faturaAberta = null;
+  }
   const hoje = hojeISO();
   let html = '';
 
@@ -863,8 +990,10 @@ function vCarteira(k) {
         (dias === 0 ? ' · hoje' : dias > 0 ? ' · em ' + dias + ' dia' + (dias === 1 ? '' : 's') : ' · há ' + (-dias) + ' dia' + (dias === -1 ? '' : 's')) +
         ' · fecha dia ' + c.fechamento + '</div>' +
 
-      (st.total > 0 ? '<button class="chip" data-pagar="' + c.id + '" style="margin-bottom:4px">' +
+      (st.total > 0 && st.pagavel ? '<button class="chip" data-pagar="' + c.id + '" style="margin-bottom:4px">' +
         (st.resta > 0.009 ? 'Registrar pagamento' : 'Pagar mais') + '</button>' : '') +
+      (st.total > 0 && !st.pagavel ? '<span class="tiny" style="display:inline-block;margin:0 0 4px">Fatura ainda não aberta · abre em ' + dataBR(st.abre) + '</span>' : '') +
+      '<button class="chip" data-vercartao="' + c.id + '" style="margin:0 0 4px 6px">Ver faturas</button>' +
 
       (pagos.length ? '<div style="margin-top:8px">' + pagos.map(p =>
         '<div class="row"><span class="dot" style="background:var(--green)22;color:var(--green)">✓</span>' +
@@ -964,10 +1093,14 @@ function wire(k) {
   document.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => sheetLanc(b.dataset.edit));
   const pz = document.getElementById('personalizar'); if (pz) pz.onclick = sheetPainel;
   document.querySelectorAll('[data-vercart]').forEach(b => b.onclick = () => {
-    const p = b.dataset.vercart.split('-');
-    cursor = new Date(Number(p[0]), Number(p[1]) - 1, 1);
-    selMes = null; selCat = null; tab = 'carteira'; render();
+    const p = b.dataset.vercart.split('|');
+    tab = 'carteira'; abrirCartao(p[0], p[1]);
   });
+  document.querySelectorAll('[data-vercartao]').forEach(b => b.onclick = () => abrirCartao(b.dataset.vercartao));
+  document.querySelectorAll('[data-fat]').forEach(b => b.onclick = () => abrirFatura(b.dataset.fat));
+  document.querySelectorAll('[data-voltar]').forEach(b => b.onclick = () => history.back());
+  document.querySelectorAll('[data-pagarfat]').forEach(b => b.onclick = () => sheetPagamento(b.dataset.pagarfat, faturaAberta));
+  const mp = document.getElementById('mais-pagas'); if (mp) mp.onclick = () => { mostrarPagas = !mostrarPagas; render(); };
   const fq = document.getElementById('lf-q');
   if (fq) {
     fq.oninput = () => {
@@ -1551,6 +1684,7 @@ function sheetCategoria(id, tipoNovo) {
 function sheetPagamento(cartaoId, comp) {
   const c = cartao(cartaoId);
   const st = situacao(c, comp);
+  if (!st.pagavel) { toast('Esta fatura ainda não abriu — abre em ' + dataBR(st.abre)); return; }
   const p = comp.split('-');
   const hoje = hojeISO();
 
@@ -1615,6 +1749,7 @@ function sheetPagamento(cartaoId, comp) {
     const v = parseFloat(val.value);
     const data = document.getElementById('p-data').value;
     if (!(v > 0) || !data) { alert('Informe valor e data.'); return; }
+    if (data < st.abre) { alert('Esta fatura só abriu em ' + dataBR(st.abre) + '. A data do pagamento não pode ser anterior.'); return; }
     this.disabled = true; this.textContent = 'Salvando…';
     const pg = {
       id: uid(), data: data, cartao: cartaoId, comp: comp, valor: Math.round(v * 100) / 100,
@@ -1728,7 +1863,11 @@ function mudaMes(d) {
   anima([{ transform: 'translateX(' + (d * 36) + 'px)', opacity: 0 }, { transform: 'none', opacity: 1 }], 240);
 }
 function trocaAba(nova) {
-  if (nova === tab) return;
+  if (nova === tab) {
+    if (nova === 'carteira' && cartaoAberto) { cartaoAberto = null; faturaAberta = null; render(); window.scrollTo(0, 0); }
+    return;
+  }
+  cartaoAberto = null; faturaAberta = null;
   if (nova !== 'lanc') limparFiltro();
   tab = nova; animarGraf = true; render();
   anima([{ transform: 'translateY(8px)', opacity: 0 }, { transform: 'none', opacity: 1 }], 200);
