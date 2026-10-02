@@ -1,8 +1,16 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-<base target="_top">
 <meta charset="utf-8">
+<title>Caixa</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1D6B4F">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Caixa">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icone-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
@@ -196,9 +204,45 @@ input,select{width:100%;padding:11px 12px;border:1px solid var(--line);backgroun
 <div id="toast"></div>
 
 <script>
-const api = (fn, ...args) => new Promise((res, rej) => {
-  google.script.run.withSuccessHandler(res).withFailureHandler(rej)[fn](...args);
-});
+/* ---------- conexão com o Apps Script ---------- */
+
+const CFG = {
+  url: localStorage.getItem('caixa_url') || '',
+  token: localStorage.getItem('caixa_token') || ''
+};
+let offline = false;
+
+/* nomes dos parâmetros de cada ação, para manter as chamadas posicionais */
+const ARGS = {
+  ping: [], getTudo: [],
+  addLanc: ['itens'], updLanc: ['id', 'campos'], substituirLanc: ['id', 'grupo', 'itens'], delLanc: ['id', 'grupo'],
+  salvarCartao: ['c'], delCartao: ['id'], salvarConta: ['c'], delConta: ['id'],
+  salvarCategoria: ['c'], delCategoria: ['id', 'mover'],
+  addPagamento: ['p'], delPagamento: ['id'],
+  setOrc: ['catId', 'limite'], addMeta: ['m'], updMeta: ['id', 'guardado'], delMeta: ['id']
+};
+
+async function chamar(acao, args, cfg) {
+  const c = cfg || CFG;
+  if (!c.url) throw new Error('Conexão não configurada.');
+  if (navigator.onLine === false) throw new Error('Sem internet.');
+  // text/plain evita o preflight OPTIONS, que o Apps Script não responde
+  const r = await fetch(c.url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({ token: c.token, acao: acao, args: args || {} }),
+    redirect: 'follow'
+  });
+  if (!r.ok) throw new Error('Servidor respondeu ' + r.status + '.');
+  let j;
+  try { j = await r.json(); }
+  catch (e) { throw new Error('Resposta inesperada — confira se a implantação está como "Qualquer pessoa".'); }
+  if (j.erro) throw new Error(j.erro);
+  return j.dados;
+}
+
+const api = (fn, ...vals) =>
+  chamar(fn, (ARGS[fn] || []).reduce((o, k, i) => { o[k] = vals[i]; return o; }, {}));
 
 let D = { lanc: [], cats: [], cartoes: [], contas: [], pagamentos: [], orcs: {}, metas: [] };
 let cursor = new Date(), tab = 'resumo';
@@ -243,6 +287,12 @@ function competenciaCartao(c, dataISO, somaMeses) {
   return mk(d);
 }
 const vencimentoDe = (c, comp) => comp + '-' + String(c.vencimento).padStart(2, '0');
+
+/** Soma meses a uma competência AAAA-MM. */
+function somaComp(comp, meses) {
+  const p = comp.split('-').map(Number);
+  return mk(new Date(p[0], p[1] - 1 + (meses || 0), 1));
+}
 
 /** Fatura de um cartão numa competência: o que foi lançado. */
 const fatura = (cartaoId, comp) =>
@@ -307,14 +357,31 @@ function toast(msg) {
   setTimeout(() => t.classList.remove('on'), 2200);
 }
 
+function salvarCache() {
+  try { localStorage.setItem('caixa_dados', JSON.stringify(D)); localStorage.setItem('caixa_cache_em', new Date().toISOString()); }
+  catch (e) {}
+}
+
 async function carregar() {
-  try { D = await api('getTudo'); }
-  catch (e) {
-    document.getElementById('view').innerHTML =
-      '<div class="card"><div class="empty"><b>Não consegui ler a planilha</b>' + esc(e.message || e) + '</div></div>';
-    return;
+  // mostra o que já tem guardado, para abrir instantâneo e funcionar offline
+  const cache = localStorage.getItem('caixa_dados');
+  if (cache) { try { D = JSON.parse(cache); render(); } catch (e) {} }
+
+  try {
+    D = await api('getTudo');
+    offline = false;
+    salvarCache();
+    render();
+  } catch (e) {
+    offline = true;
+    if (cache) { render(); toast('Offline — mostrando os dados guardados'); }
+    else {
+      document.getElementById('view').innerHTML =
+        '<div class="card"><div class="empty"><b>Não consegui conectar</b>' + esc(e.message || e) +
+        '</div><button class="ghost" id="reconfig">Rever a conexão</button></div>';
+      const b = document.getElementById('reconfig'); if (b) b.onclick = () => telaConexao();
+    }
   }
-  render();
 }
 
 function render() {
@@ -322,9 +389,14 @@ function render() {
   document.getElementById('mtitle').firstChild.nodeValue = MES[cursor.getMonth()];
   document.getElementById('msub').textContent = cursor.getFullYear();
   document.querySelectorAll('nav button').forEach(b => b.setAttribute('aria-current', String(b.dataset.tab === tab)));
-  document.getElementById('view').innerHTML =
+  const aviso = offline
+    ? '<div class="aviso" style="margin-bottom:12px;background:var(--rust-soft,var(--ochre-soft))">' +
+      'Sem internet. Você pode consultar, mas não lançar nem editar até voltar a conexão.</div>'
+    : '';
+  document.getElementById('view').innerHTML = aviso +
     ({resumo:vResumo, lanc:vLanc, carteira:vCarteira, orc:vOrc, metas:vMetas})[tab](k);
   wire(k);
+  if (!offline) salvarCache();
 }
 
 /* ---------- telas ---------- */
@@ -572,7 +644,12 @@ function vCarteira(k) {
         '<span class="v" style="color:' + (s < 0 ? 'var(--rust)' : 'inherit') + '">' + brl(s) + '</span>' +
         '<button class="chip" data-edconta="' + c.id + '">editar</button></div>';
     }).join('') +
-    '<button class="ghost" id="novaconta">Adicionar conta</button></div>';
+    '<button class="ghost" id="novaconta">Adicionar conta</button></div>' +
+
+    '<div class="card"><h2>Conexão</h2>' +
+    '<p class="tiny" style="margin:0 0 10px">' + (offline ? 'Offline. ' : 'Conectado. ') +
+    'Os dados ficam na sua planilha do Google.</p>' +
+    '<button class="ghost" id="btconexao" style="margin-top:0">Rever URL e token</button></div>';
 
   return html;
 }
@@ -657,6 +734,7 @@ function wire(k) {
   const ncr = document.getElementById('novacat-receita'); if (ncr) ncr.onclick = () => sheetCategoria(null, 'receita');
   const nc = document.getElementById('novocartao'); if (nc) nc.onclick = () => sheetCartao(null);
   const nk = document.getElementById('novaconta'); if (nk) nk.onclick = () => sheetConta(null);
+  const bc = document.getElementById('btconexao'); if (bc) bc.onclick = () => telaConexao();
   document.querySelectorAll('[data-edcartao]').forEach(b => b.onclick = () => sheetCartao(b.dataset.edcartao));
   document.querySelectorAll('[data-pagar]').forEach(b => b.onclick = () => sheetPagamento(b.dataset.pagar, k));
   document.querySelectorAll('[data-delpag]').forEach(b => b.onclick = async () => {
@@ -710,6 +788,10 @@ function sheetLanc(editId) {
   let base = 'total';
 
   const nOrig = t && t.parc ? t.parc.n : 1;
+  // parcela mais baixa que existe no grupo: um grupo lançado em andamento começa em 5, não em 1
+  const iniOrig = (t && t.parc && temGrupo) ? Math.min.apply(null, irmaos.map(x => x.parc ? x.parc.i : 1)) : 1;
+  let inicio = iniOrig;
+  const compGrupo = temGrupo ? irmaos.map(x => x.comp).sort()[0] : null;
   const repOrig = (t && t.fixo && temGrupo) ? irmaos.length : 1;
   const repOpts = [1, 3, 6, 12, 24].indexOf(repOrig) === -1 ? [repOrig, 3, 6, 12, 24] : [1, 3, 6, 12, 24];
 
@@ -718,8 +800,8 @@ function sheetLanc(editId) {
     (temGrupo ? '<label>O que você quer alterar</label>' +
       '<div class="seg" id="escopo"><button data-escopo="uma" aria-pressed="true">Só esta ' +
         (t.parc ? 'parcela' : 'ocorrência') + '</button>' +
-      '<button data-escopo="todas" aria-pressed="false">' +
-        (t.parc ? 'Todas as ' + nOrig : 'Todas as ' + irmaos.length) + '</button></div>' : '') +
+      '<button data-escopo="todas" aria-pressed="false">Todas as ' + irmaos.length +
+        (t.parc && irmaos.length < nOrig ? ' lançadas' : '') + '</button></div>' : '') +
 
     '<div class="seg" id="tipo" style="margin-top:11px"><button data-tipo="despesa" aria-pressed="' + (tipo === 'despesa') + '">Despesa</button>' +
     '<button data-tipo="receita" aria-pressed="' + (tipo === 'receita') + '">Receita</button></div>' +
@@ -732,7 +814,9 @@ function sheetLanc(editId) {
 
     '<div class="two"><div><label for="f-val" id="lab-val">Valor (R$)</label>' +
     '<input id="f-val" type="text" inputmode="decimal" placeholder="0,00" value="' + (t ? brlNum(t.valor) : '') + '"></div>' +
-    '<div><label for="f-data" id="lab-data">Data</label><input id="f-data" type="date" value="' + (t ? t.data : isoPadrao) + '"></div></div>' +
+    '<div><label for="f-data" id="lab-data">Data</label>' +
+    '<input id="f-data" type="date" value="' + (t ? t.data : isoPadrao) + '">' +
+    '<input id="f-mes" class="hide" type="month" value="' + (compGrupo || mk(cursor)) + '"></div></div>' +
 
     '<label>Como foi pago</label><div class="chips" id="f-meios"></div>' +
 
@@ -744,8 +828,13 @@ function sheetLanc(editId) {
     '<div id="bloco-cred" class="hide"><label>Forma de pagamento</label>' +
     '<div class="seg" id="forma"><button data-forma="avista" aria-pressed="' + (forma === 'avista') + '">À vista</button>' +
     '<button data-forma="parcelado" aria-pressed="' + (forma === 'parcelado') + '">Parcelado</button></div>' +
-    '<div id="bloco-parc" class="hide"><label for="f-parc">Em quantas vezes</label>' +
+    '<div id="bloco-parc" class="hide"><div class="two">' +
+    '<div><label for="f-ini">Parcela atual</label>' +
+    '<input id="f-ini" type="number" min="1" max="60" step="1" value="' + inicio + '"></div>' +
+    '<div><label for="f-parc">Total de parcelas</label>' +
     '<input id="f-parc" type="number" min="2" max="60" step="1" value="' + (nOrig > 1 ? nOrig : 2) + '"></div></div>' +
+    '<p class="tiny" style="margin:7px 0 0">Deixe 1 para uma compra nova. Para uma compra que já está correndo, ' +
+    'informe a parcela que vem agora — as anteriores não são lançadas.</p></div></div>' +
 
     '<div id="bloco-rep"><label for="f-rep">Repetir todo mês por</label><select id="f-rep">' +
     repOpts.map(v => '<option value="' + v + '"' + (v === repOrig ? ' selected' : '') + '>' +
@@ -777,6 +866,10 @@ function sheetLanc(editId) {
       labData.textContent = 'Data';
       val.value = brlNum(t.valor);
       document.getElementById('f-data').value = t.data;
+    } else if (t.parc && iniOrig > 1) {
+      lab.textContent = 'Valor de cada parcela (R$)';
+      val.value = brlNum(t.valor);
+      document.getElementById('f-mes').value = compGrupo;
     } else {
       lab.textContent = t.parc ? 'Valor total da compra (R$)' : 'Valor de cada mês (R$)';
       labData.textContent = t.parc ? 'Data da compra' : 'Data da primeira';
@@ -790,13 +883,18 @@ function sheetLanc(editId) {
     const soUma = temGrupo && escopo === 'uma';
 
     const parcelando = isCartao && forma === 'parcelado' && !soUma;
+    // em andamento: o total da compra não se aplica, só o valor da parcela
+    const andamento = parcelando && inicio > 1;
     document.getElementById('bloco-cred').classList.toggle('hide', !isCartao || soUma);
     document.getElementById('bloco-conta').classList.toggle('hide', isCartao);
     document.getElementById('bloco-rep').classList.toggle('hide', soUma || (isCartao && forma === 'parcelado'));
     document.getElementById('bloco-parc').classList.toggle('hide', soUma || !(isCartao && forma === 'parcelado'));
-    document.getElementById('bloco-base').classList.toggle('hide', !parcelando);
+    document.getElementById('bloco-base').classList.toggle('hide', !parcelando || andamento);
+    document.getElementById('f-data').classList.toggle('hide', andamento);
+    document.getElementById('f-mes').classList.toggle('hide', !andamento);
+    document.getElementById('lab-data').textContent = andamento ? 'Mês desta parcela' : (t && t.parc && escopo === 'todas' ? 'Data da compra' : 'Data');
     if (parcelando) document.getElementById('lab-val').textContent =
-      (base === 'parcela' ? 'Valor de cada parcela (R$)' : 'Valor total da compra (R$)');
+      (andamento ? 'Valor da parcela (R$)' : base === 'parcela' ? 'Valor de cada parcela (R$)' : 'Valor total da compra (R$)');
 
     const data = document.getElementById('f-data').value;
     const av = document.getElementById('f-aviso');
@@ -806,7 +904,29 @@ function sheetLanc(editId) {
         '. As outras ' + (irmaos.length - 1) + ' ficam como estão.';
       return;
     }
-    if (isCartao && data) {
+    if (isCartao && andamento) {
+      const c = cartao(meio.slice(7));
+      const comp = document.getElementById('f-mes').value;
+      const n = Math.max(2, parseInt(document.getElementById('f-parc').value) || 2);
+      const ini = Math.max(1, parseInt(document.getElementById('f-ini').value) || 1);
+      if (ini > n) {
+        av.textContent = 'A parcela atual (' + ini + ') não pode ser maior que o total (' + n + ').';
+        return;
+      }
+      const quantas = n - ini + 1;
+      const v = num(document.getElementById('f-val').value);
+      if (!comp) { av.textContent = 'Informe o mês desta parcela.'; return; }
+      const p = comp.split('-');
+      const ult = somaComp(comp, quantas - 1).split('-');
+      let txt = 'Lança ' + quantas + ' parcela' + (quantas === 1 ? '' : 's') + ': da ' + ini + '/' + n +
+        ' em ' + MES[Number(p[1]) - 1] + '/' + p[0] + ' até a ' + n + '/' + n +
+        ' em ' + MES[Number(ult[1]) - 1] + '/' + ult[0] + '.';
+      if (isFinite(v) && v > 0) txt += ' Total a lançar ' + brl(Math.round(v * quantas * 100) / 100) + '.';
+      txt += ' As parcelas de 1 a ' + (ini - 1) + ' não entram — meses anteriores ficam intocados.';
+      txt += ' Vence dia ' + c.vencimento + '.';
+      if (t) txt += ' As ' + irmaos.length + ' linhas antigas são substituídas.';
+      av.textContent = txt;
+    } else if (isCartao && data) {
       const c = cartao(meio.slice(7));
       const comp = competenciaCartao(c, data);
       const n = forma === 'parcelado' ? Math.max(2, parseInt(document.getElementById('f-parc').value) || 2) : 1;
@@ -861,8 +981,13 @@ function sheetLanc(editId) {
     sync();
   });
   document.getElementById('f-data').onchange = sync;
+  document.getElementById('f-mes').onchange = sync;
   document.getElementById('f-val').oninput = sync;
   document.getElementById('f-parc').oninput = sync;
+  document.getElementById('f-ini').oninput = function () {
+    inicio = Math.max(1, parseInt(this.value) || 1);
+    sync();
+  };
   document.getElementById('f-cancel').onclick = closeSheet;
 
   const ex = document.getElementById('f-excluir');
@@ -877,7 +1002,10 @@ function sheetLanc(editId) {
     const desc = document.getElementById('f-desc').value.trim();
     const valor = num(document.getElementById('f-val').value);
     const data = document.getElementById('f-data').value;
-    if (!desc || !data) { alert('Preencha descrição e data.'); return; }
+    const compMes = document.getElementById('f-mes').value;
+    const usaMes = !document.getElementById('f-mes').classList.contains('hide');
+    if (!desc) { alert('Preencha a descrição.'); return; }
+    if (usaMes ? !compMes : !data) { alert(usaMes ? 'Informe o mês desta parcela.' : 'Informe a data.'); return; }
     if (!isFinite(valor) || !(valor > 0)) { alert('Valor inválido. Use números, vírgula decimal, ou uma conta como 35,40+12,90.'); return; }
 
     const isCartao = meio.indexOf('cartao:') === 0 && tipo === 'despesa';
@@ -904,23 +1032,29 @@ function sheetLanc(editId) {
 
     /* --- criar, ou refazer o grupo inteiro --- */
     const n = (isCartao && forma === 'parcelado') ? Math.max(2, Math.min(60, parseInt(document.getElementById('f-parc').value) || 2)) : 1;
+    const ini = (n > 1) ? Math.max(1, parseInt(document.getElementById('f-ini').value) || 1) : 1;
+    if (ini > n) { alert('A parcela atual (' + ini + ') não pode ser maior que o total (' + n + ').'); return; }
+    const emAndamento = isCartao && n > 1 && ini > 1;
     const rep = (!isCartao || forma === 'avista') ? (parseInt(document.getElementById('f-rep').value) || 1) : 1;
-    const base = new Date(data + 'T12:00:00');
-    const vezes = n > 1 ? n : rep;
+    const dBase = new Date((emAndamento ? (compMes + '-01') : data) + 'T12:00:00');
+    const vezes = n > 1 ? (n - ini + 1) : rep;
     const grupo = vezes > 1 ? uid() : null;
-    // se o usuário informou o valor da parcela, ele é exato e o total é derivado
+    // valor da parcela informado é exato; o total é que é derivado. Em andamento é sempre por parcela.
     const vparc = n > 1
-      ? (base === 'parcela' ? Math.round(valor * 100) / 100 : Math.round(valor / n * 100) / 100)
+      ? ((emAndamento || base === 'parcela') ? Math.round(valor * 100) / 100 : Math.round(valor / n * 100) / 100)
       : Math.round(valor * 100) / 100;
     const itens = [];
 
     for (let i = 0; i < vezes; i++) {
       let dataI, comp;
-      if (isCartao) {
+      if (emAndamento) {
+        comp = somaComp(compMes, i);
+        dataI = comp + '-01';          // a data original da compra não é conhecida
+      } else if (isCartao) {
         dataI = data;
         comp = competenciaCartao(c, data, i);
       } else {
-        const d2 = new Date(base.getFullYear(), base.getMonth() + i, Math.min(base.getDate(), 28));
+        const d2 = new Date(dBase.getFullYear(), dBase.getMonth() + i, Math.min(dBase.getDate(), 28));
         dataI = d2.getFullYear() + '-' + String(d2.getMonth()+1).padStart(2,'0') + '-' + String(d2.getDate()).padStart(2,'0');
         comp = dataI.slice(0, 7);
       }
@@ -928,7 +1062,7 @@ function sheetLanc(editId) {
         id: uid(), grupo: grupo, desc: desc, valor: vparc, tipo: tipo, catId: catId,
         data: dataI, comp: comp,
         meio: isCartao ? 'cartao' : meio, cartao: isCartao ? c.id : null, conta: contaId,
-        parc: n > 1 ? { i: i + 1, n: n } : null,
+        parc: n > 1 ? { i: ini + i, n: n } : null,
         fixo: n === 1 && rep > 1
       });
     }
@@ -1224,12 +1358,72 @@ function sheetMeta() {
   };
 }
 
+/* ---------- tela de pareamento ---------- */
+
+function telaConexao(primeira) {
+  document.querySelector('nav').style.display = 'none';
+  document.getElementById('fab').style.display = 'none';
+  document.getElementById('mtitle').firstChild.nodeValue = 'Caixa';
+  document.getElementById('msub').textContent = 'conexão';
+
+  document.getElementById('view').innerHTML =
+    '<div class="card">' +
+    '<h2>' + (primeira ? 'Conectar à sua planilha' : 'Conexão') + '</h2>' +
+    '<p class="tiny" style="margin:0 0 4px">Cole o endereço do seu app do Apps Script e o token que você gerou. ' +
+    'Eles ficam guardados só neste aparelho — não vão para a internet nem para o repositório.</p>' +
+    '<label for="cx-url">URL do app da web</label>' +
+    '<input id="cx-url" type="url" inputmode="url" placeholder="https://script.google.com/macros/s/.../exec" value="' + esc(CFG.url) + '">' +
+    '<label for="cx-token">Token</label>' +
+    '<input id="cx-token" placeholder="cole aqui o token" value="' + esc(CFG.token) + '">' +
+    '<div class="aviso" id="cx-aviso">Quem tiver esta URL e este token consegue ver e alterar seus dados. Trate como senha.</div>' +
+    '<button class="primary" id="cx-testar">Conectar</button>' +
+    (CFG.url && !primeira ? '<button class="ghost" id="cx-voltar">Voltar</button>' : '') +
+    '</div>';
+
+  const vb = document.getElementById('cx-voltar');
+  if (vb) vb.onclick = () => { document.querySelector('nav').style.display = ''; document.getElementById('fab').style.display = ''; render(); };
+
+  document.getElementById('cx-testar').onclick = async function () {
+    const url = document.getElementById('cx-url').value.trim();
+    const token = document.getElementById('cx-token').value.trim();
+    const av = document.getElementById('cx-aviso');
+    if (!url || !token) { av.textContent = 'Preencha os dois campos.'; return; }
+    if (url.indexOf('/exec') === -1) {
+      av.textContent = 'A URL precisa terminar em /exec. Se termina em /dev, você copiou o endereço de teste.';
+      return;
+    }
+    this.disabled = true; this.textContent = 'Testando…';
+    av.textContent = 'Falando com o Apps Script…';
+    try {
+      await chamar('ping', {}, { url: url, token: token });
+      localStorage.setItem('caixa_url', url);
+      localStorage.setItem('caixa_token', token);
+      CFG.url = url; CFG.token = token;
+      document.querySelector('nav').style.display = '';
+      document.getElementById('fab').style.display = '';
+      toast('Conectado');
+      carregar();
+    } catch (e) {
+      this.disabled = false; this.textContent = 'Conectar';
+      av.textContent = 'Não deu certo: ' + (e.message || e);
+    }
+  };
+}
+
+/* ---------- partida ---------- */
+
 document.getElementById('fab').onclick = () => sheetLanc(null);
+window.addEventListener('online', () => { offline = false; carregar(); });
+window.addEventListener('offline', () => { offline = true; render(); });
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+}
 document.getElementById('prev').onclick = () => { cursor = new Date(cursor.getFullYear(), cursor.getMonth()-1, 1); selMes = null; selCat = null; render(); };
 document.getElementById('next').onclick = () => { cursor = new Date(cursor.getFullYear(), cursor.getMonth()+1, 1); selMes = null; selCat = null; render(); };
 document.querySelectorAll('nav button').forEach(b => b.onclick = () => { tab = b.dataset.tab; render(); });
 
-carregar();
+if (CFG.url && CFG.token) carregar(); else telaConexao(true);
 </script>
 </body>
 </html>
