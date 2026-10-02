@@ -176,6 +176,21 @@ input,select{width:100%;padding:11px 12px;border:1px solid var(--line);backgroun
 #toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(94px + env(safe-area-inset-bottom));
   background:var(--ink);color:var(--paper);padding:9px 15px;border-radius:999px;font-size:13px;z-index:50;display:none}
 #toast.on{display:block}
+
+.step:disabled{opacity:.35}
+.chips.rolagem{flex-wrap:nowrap;overflow-x:auto;padding-bottom:4px;scrollbar-width:none}
+.chips.rolagem::-webkit-scrollbar{display:none}
+.chips.rolagem .chip{white-space:nowrap;flex:0 0 auto}
+.busca{display:flex;gap:8px;align-items:center}
+.busca input{flex:1}
+.busca .chip{flex:0 0 auto;padding:11px 13px}
+.flab{font-size:11px;color:var(--ink-soft);margin:10px 0 5px;font-weight:500}
+.res-filtro{font-size:12.5px;color:var(--ink-soft);margin:0 2px 10px}
+.ativos{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 10px}
+.ativos .chip{padding:6px 10px;font-size:12px;background:var(--surface-2)}
+.mes-h{display:flex;justify-content:space-between;font-family:"Bricolage Grotesque";font-weight:700;font-size:15px;margin:16px 2px 8px;text-transform:capitalize}
+.mes-h em{font-style:normal;font-weight:500;font-size:12px;color:var(--ink-soft);text-transform:none}
+.link-suave{background:none;border:0;color:var(--ink-soft);font-size:13px;text-decoration:underline;padding:10px;display:block;margin:0 auto}
 </style>
 </head>
 <body>
@@ -219,7 +234,7 @@ const ARGS = {
   salvarCartao: ['c'], delCartao: ['id'], salvarConta: ['c'], delConta: ['id'],
   salvarCategoria: ['c'], delCategoria: ['id', 'mover'],
   addPagamento: ['p'], delPagamento: ['id'],
-  setOrc: ['catId', 'limite'], addMeta: ['m'], updMeta: ['id', 'guardado'], delMeta: ['id']
+  setOrc: ['catId', 'limite'], salvarPrefs: ['chave', 'valor'], addMeta: ['m'], updMeta: ['id', 'guardado'], delMeta: ['id']
 };
 
 async function chamar(acao, args, cfg) {
@@ -244,7 +259,7 @@ async function chamar(acao, args, cfg) {
 const api = (fn, ...vals) =>
   chamar(fn, (ARGS[fn] || []).reduce((o, k, i) => { o[k] = vals[i]; return o; }, {}));
 
-let D = { lanc: [], cats: [], cartoes: [], contas: [], pagamentos: [], orcs: {}, metas: [] };
+let D = { lanc: [], cats: [], cartoes: [], contas: [], pagamentos: [], orcs: {}, metas: [], prefs: {} };
 let cursor = new Date(), tab = 'resumo';
 
 const MES = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
@@ -386,8 +401,11 @@ async function carregar() {
 
 function render() {
   const k = mk(cursor);
-  document.getElementById('mtitle').firstChild.nodeValue = MES[cursor.getMonth()];
-  document.getElementById('msub').textContent = cursor.getFullYear();
+  const todos = tab === 'lanc' && filtro.todos;
+  document.getElementById('mtitle').firstChild.nodeValue = todos ? 'Todos os meses' : MES[cursor.getMonth()];
+  document.getElementById('msub').textContent = todos ? '' : cursor.getFullYear();
+  document.getElementById('prev').disabled = todos;
+  document.getElementById('next').disabled = todos;
   document.querySelectorAll('nav button').forEach(b => b.setAttribute('aria-current', String(b.dataset.tab === tab)));
   const aviso = offline
     ? '<div class="aviso" style="margin-bottom:12px;background:var(--rust-soft,var(--ochre-soft))">' +
@@ -505,6 +523,94 @@ function linhaDoTempo(k) {
     leitura + '</div>';
 }
 
+/* ---------- painel do Resumo: blocos independentes ---------- */
+
+const BLOCOS = [
+  { id: 'sobra',      nome: 'Sobra do mês e barra de categorias' },
+  { id: 'fluxo',      nome: 'Entrou e saiu' },
+  { id: 'forma',      nome: 'À vista e cartão' },
+  { id: 'faturas',    nome: 'Faturas em aberto' },
+  { id: 'grafico',    nome: 'Despesas mês a mês' },
+  { id: 'saldo',      nome: 'Saldo em conta' },
+  { id: 'categorias', nome: 'Por categoria' }
+];
+
+/** Ordem e visibilidade salvas; blocos novos entram no fim, os que sumiram são ignorados. */
+function painel() {
+  let p = {};
+  try { p = JSON.parse((D.prefs || {}).painel || '{}') || {}; } catch (e) {}
+  const ids = BLOCOS.map(b => b.id);
+  const ordem = (p.ordem || []).filter(i => ids.includes(i));
+  ids.forEach(i => { if (!ordem.includes(i)) ordem.push(i); });
+  return { ordem: ordem, off: (p.off || []).filter(i => ids.includes(i)) };
+}
+
+let tPrefs = null;
+function salvarPainel(p) {
+  D.prefs = D.prefs || {};
+  D.prefs.painel = JSON.stringify(p);
+  render();
+  salvarCache();
+  clearTimeout(tPrefs);   // só a última escolha vai à planilha
+  tPrefs = setTimeout(async () => {
+    try { await api('salvarPrefs', 'painel', D.prefs.painel); }
+    catch (e) { toast('Não salvou o painel na planilha'); }
+  }, 500);
+}
+
+function sheetPainel() {
+  const p = painel();
+  const n = p.ordem.length;
+  openSheet('<h2>Personalizar painel</h2>' +
+    '<div class="aviso" style="margin:0 0 6px">Desligue o que não quer ver e use as setas para mudar a ordem. Fica salvo na sua planilha.</div>' +
+    p.ordem.map((id, i) => {
+      const on = !p.off.includes(id), b = BLOCOS.find(x => x.id === id);
+      return '<div class="row"><button class="chip" data-pon="' + id + '" aria-pressed="' + on + '" style="min-width:74px">' +
+        (on ? 'visível' : 'oculto') + '</button>' +
+        '<span class="t"><b style="white-space:normal">' + esc(b.nome) + '</b></span>' +
+        '<button class="step" data-pup="' + id + '" aria-label="Subir"' + (i === 0 ? ' disabled' : '') + '>↑</button>' +
+        '<button class="step" data-pdn="' + id + '" aria-label="Descer"' + (i === n - 1 ? ' disabled' : '') + '>↓</button></div>';
+    }).join('') +
+    '<button class="ghost" id="p-padrao">Restaurar padrão</button>' +
+    '<button class="primary" id="p-ok">Pronto</button>');
+
+  const salva = np => { salvarPainel(np); sheetPainel(); };
+  sheet.querySelectorAll('[data-pon]').forEach(b => b.onclick = () => {
+    const q = painel(), id = b.dataset.pon;
+    q.off = q.off.includes(id) ? q.off.filter(x => x !== id) : q.off.concat(id);
+    salva(q);
+  });
+  const move = (id, d) => {
+    const q = painel(), i = q.ordem.indexOf(id), j = i + d;
+    if (j < 0 || j >= q.ordem.length) return;
+    q.ordem.splice(j, 0, q.ordem.splice(i, 1)[0]);
+    salva(q);
+  };
+  sheet.querySelectorAll('[data-pup]').forEach(b => b.onclick = () => move(b.dataset.pup, -1));
+  sheet.querySelectorAll('[data-pdn]').forEach(b => b.onclick = () => move(b.dataset.pdn, 1));
+  document.getElementById('p-padrao').onclick = () => salva({ ordem: BLOCOS.map(b => b.id), off: [] });
+  document.getElementById('p-ok').onclick = closeSheet;
+}
+
+/** Para cada cartão, a próxima fatura com saldo a pagar (e quantas vêm depois). */
+function blocoFaturas() {
+  if (!D.cartoes.length) return '';
+  const linhas = [];
+  D.cartoes.forEach(c => {
+    const comps = Array.from(new Set(D.lanc.filter(t => t.cartao === c.id && t.tipo === 'despesa').map(t => t.comp))).sort();
+    const abertas = comps.map(cp => ({ cp: cp, st: situacao(c, cp) })).filter(x => x.st.resta > 0.009);
+    if (!abertas.length) return;
+    const a = abertas[0], mais = abertas.slice(1);
+    linhas.push('<div class="row clic" data-vercart="' + a.cp + '"><span class="dot" style="background:' + c.cor + '22;color:' + c.cor + '">▭</span>' +
+      '<span class="t"><b>' + esc(c.nome) + '</b><small style="color:' + a.st.cor + '">vence ' + a.st.venc.split('-').reverse().join('/') +
+      ' · ' + a.st.estado +
+      (mais.length ? ' · +' + mais.length + ' fatura' + (mais.length === 1 ? '' : 's') + ' à frente (' + brl(mais.reduce((s, x) => s + x.st.resta, 0)) + ')' : '') +
+      '</small></span><span class="v">' + brl(a.st.resta) + '</span><span class="del" aria-hidden="true">&rsaquo;</span></div>');
+  });
+  return '<div class="card"><h2>Faturas em aberto <em>próxima de cada cartão</em></h2>' +
+    (linhas.length ? linhas.join('') : '<div class="empty"><b>Tudo pago</b>Nenhuma fatura com saldo a pagar.</div>') + '</div>';
+}
+
 function vResumo(k) {
   const t = somaMes(k), L = doMes(k);
   const noCartao = L.filter(x => x.meio === 'cartao' && x.tipo === 'despesa').reduce((s, x) => s + x.valor, 0);
@@ -522,49 +628,104 @@ function vResumo(k) {
       brl(porCat[selCat]) + ' · ' + (porCat[selCat]/tot*100).toFixed(0) + '% do mês</span>'
     : cats.slice(0, 5).map(([id, v]) => '<span><i style="background:' + cat(id).cor + '"></i>' + esc(cat(id).nome) + ' ' + brl(v) + '</span>').join('');
 
-  return '<section class="ribbon"><div class="figs"><div>' +
-    '<div class="saldo ' + (t.saldo < 0 ? 'neg' : 'pos') + '">' + brl(t.saldo) + '</div>' +
-    '<div class="tiny">sobra do mês</div></div>' +
-    '<div class="sub">' + L.length + ' lançamento' + (L.length === 1 ? '' : 's') + '</div></div>' +
-    '<div class="bar">' + (barras || '<span style="width:100%;background:var(--surface-2)"></span>') + '</div>' +
-    '<div class="legend">' + (leg || 'Sem despesas nesta competência.') + '</div></section>' +
+  const B = {
+    sobra: () => '<section class="ribbon"><div class="figs"><div>' +
+      '<div class="saldo ' + (t.saldo < 0 ? 'neg' : 'pos') + '">' + brl(t.saldo) + '</div>' +
+      '<div class="tiny">sobra do mês</div></div>' +
+      '<div class="sub">' + L.length + ' lançamento' + (L.length === 1 ? '' : 's') + '</div></div>' +
+      '<div class="bar">' + (barras || '<span style="width:100%;background:var(--surface-2)"></span>') + '</div>' +
+      '<div class="legend">' + (leg || 'Sem despesas nesta competência.') + '</div></section>',
 
-    '<div class="duo"><div class="stat in"><b>' + brl(t.rec) + '</b><small>entrou</small></div>' +
-    '<div class="stat out"><b>' + brl(t.des) + '</b><small>saiu</small></div></div>' +
-    '<div class="duo"><div class="stat"><b>' + brl(aVista) + '</b><small>à vista (Pix, débito, dinheiro)</small></div>' +
-    '<div class="stat"><b>' + brl(noCartao) + '</b><small>nas faturas de cartão</small></div></div>' +
+    fluxo: () => '<div class="duo"><div class="stat in"><b>' + brl(t.rec) + '</b><small>entrou</small></div>' +
+      '<div class="stat out"><b>' + brl(t.des) + '</b><small>saiu</small></div></div>',
 
-    linhaDoTempo(k) +
+    forma: () => '<div class="duo"><div class="stat"><b>' + brl(aVista) + '</b><small>à vista (Pix, débito, dinheiro)</small></div>' +
+      '<div class="stat"><b>' + brl(noCartao) + '</b><small>nas faturas de cartão</small></div></div>',
 
-    (D.contas.length ? '<div class="card"><h2>Saldo em conta <em>posição de hoje</em></h2>' +
+    faturas: () => blocoFaturas(),
+
+    grafico: () => linhaDoTempo(k),
+
+    saldo: () => D.contas.length ? '<div class="card"><h2>Saldo em conta <em>posição de hoje</em></h2>' +
       D.contas.map(c => {
         const s = saldoConta(c.id);
         return '<div class="row"><span class="dot" style="background:' + c.cor + '22;color:' + c.cor + '">◈</span>' +
           '<span class="t"><b>' + esc(c.nome) + '</b></span>' +
           '<span class="v" style="color:' + (s < 0 ? 'var(--rust)' : 'inherit') + '">' + brl(s) + '</span></div>';
-      }).join('') + '</div>' : '') +
+      }).join('') + '</div>' : '',
 
-    '<div class="card"><h2>Por categoria <em>' + cats.length + ' ativa' + (cats.length === 1 ? '' : 's') + '</em></h2>' +
-    (cats.length ? cats.map(([id, v]) => {
-      const c = cat(id), o = D.orcs[id] || 0;
-      return '<div class="budget-row clic' + (selCat === id ? ' marcada' : '') + '" data-seg="' + id + '"><div class="budget-head">' +
-        '<span class="dot" style="background:' + c.cor + '22;color:' + c.cor + '">' + c.icone + '</span>' +
-        '<span class="t">' + esc(c.nome) + '</span>' +
-        '<span class="n ' + (o && v > o ? 'over' : '') + '">' + brl(v) + (o ? ' / ' + brl(o) : '') + '</span></div>' +
-        (o ? '<div class="prog"><span style="width:' + Math.min(100, v/o*100) + '%;background:' + (v > o ? 'var(--rust)' : c.cor) + '"></span></div>' : '') +
-        '</div>';
-    }).join('') : '<div class="empty"><b>Competência em branco</b>Toque no + para lançar.</div>') + '</div>' +
+    categorias: () => '<div class="card"><h2>Por categoria <em>' + cats.length + ' ativa' + (cats.length === 1 ? '' : 's') + '</em></h2>' +
+      (cats.length ? cats.map(([id, v]) => {
+        const c = cat(id), o = D.orcs[id] || 0;
+        return '<div class="budget-row clic' + (selCat === id ? ' marcada' : '') + '" data-seg="' + id + '"><div class="budget-head">' +
+          '<span class="dot" style="background:' + c.cor + '22;color:' + c.cor + '">' + c.icone + '</span>' +
+          '<span class="t">' + esc(c.nome) + '</span>' +
+          '<span class="n ' + (o && v > o ? 'over' : '') + '">' + brl(v) + (o ? ' / ' + brl(o) : '') + '</span></div>' +
+          (o ? '<div class="prog"><span style="width:' + Math.min(100, v/o*100) + '%;background:' + (v > o ? 'var(--rust)' : c.cor) + '"></span></div>' : '') +
+          '</div>';
+      }).join('') : '<div class="empty"><b>Competência em branco</b>Toque no + para lançar.</div>') + '</div>'
+  };
+
+  const p = painel();
+  const vis = p.ordem.filter(id => !p.off.includes(id));
+  return (vis.length ? vis.map(id => B[id]()).join('')
+    : '<div class="card"><div class="empty"><b>Painel vazio</b>Todos os blocos estão desligados.</div></div>') +
+    '<button class="link-suave" id="personalizar">Personalizar painel</button>' +
     '<div class="status">Salvo na sua planilha do Google.</div>';
 }
 
-function vLanc(k) {
-  const L = doMes(k).slice().sort((a, b) => b.data.localeCompare(a.data));
-  if (!L.length) return '<div class="card"><div class="empty"><b>Nada em ' + MES[cursor.getMonth()] + '</b>Toque no + para começar.</div></div>';
+/* ---------- lançamentos: busca e filtros ---------- */
+
+let filtro = { q: '', cat: '', meio: '', tipo: '', todos: false, aberto: false };
+const limparFiltro = () => { filtro = { q: '', cat: '', meio: '', tipo: '', todos: false, aberto: false }; };
+const nFiltros = () => (filtro.cat ? 1 : 0) + (filtro.meio ? 1 : 0) + (filtro.tipo ? 1 : 0);
+const filtroAtivo = () => !!filtro.q.trim() || nFiltros() > 0;
+const norm = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+const meioId = t => t.meio === 'cartao' && t.cartao ? 'cartao:' + t.cartao : t.meio;
+const meioNome = id => id.indexOf('cartao:') === 0 ? (cartao(id.slice(7)) || { nome: 'Cartão' }).nome
+  : ({ pix: 'Pix', debito: 'Débito', dinheiro: 'Dinheiro' })[id] || id;
+
+function passa(t) {
+  if (filtro.tipo && t.tipo !== filtro.tipo) return false;
+  if (filtro.cat && t.catId !== filtro.cat) return false;
+  if (filtro.meio && meioId(t) !== filtro.meio) return false;
+  const q = filtro.q.trim();
+  if (q) {
+    if (norm(t.desc).indexOf(norm(q)) >= 0) return true;
+    if (/\d/.test(q)) {                       // número: "45", "45,9", "1.234"
+      const n = q.replace(/[.\s]/g, '');
+      if (brlNum(t.valor).indexOf(n) >= 0) return true;
+    }
+    return false;
+  }
+  return true;
+}
+
+function filtroBarra() {
+  const meios = ['pix', 'debito', 'dinheiro'].concat(D.cartoes.map(c => 'cartao:' + c.id));
+  const chip = (attr, val, ativo, txt) => '<button class="chip" ' + attr + '="' + val + '" aria-pressed="' + ativo + '">' + txt + '</button>';
+  return '<div class="card">' +
+    '<div class="busca"><input id="lf-q" type="search" inputmode="search" autocomplete="off" placeholder="Buscar nome ou valor" value="' + esc(filtro.q) + '">' +
+    '<button class="chip" id="lf-abrir" aria-pressed="' + (filtro.aberto || nFiltros() > 0) + '">Filtros' + (nFiltros() ? ' · ' + nFiltros() : '') + '</button></div>' +
+    '<div class="seg" style="margin-top:10px">' +
+      '<button data-fscope="mes" aria-pressed="' + !filtro.todos + '">Este mês</button>' +
+      '<button data-fscope="todos" aria-pressed="' + filtro.todos + '">Todos os meses</button></div>' +
+    (filtro.aberto || nFiltros() > 0 ?
+      '<div class="flab">Tipo</div><div class="chips rolagem">' +
+        chip('data-ftipo', 'despesa', filtro.tipo === 'despesa', 'Despesas') + chip('data-ftipo', 'receita', filtro.tipo === 'receita', 'Receitas') + '</div>' +
+      '<div class="flab">Meio de pagamento</div><div class="chips rolagem">' +
+        meios.map(m => chip('data-fmeio', m, filtro.meio === m, esc(meioNome(m)))).join('') + '</div>' +
+      '<div class="flab">Categoria</div><div class="chips rolagem">' +
+        D.cats.map(c => chip('data-fcat', c.id, filtro.cat === c.id, c.icone + ' ' + esc(c.nome))).join('') + '</div>' : '') +
+    '</div>';
+}
+
+function diasHtml(L) {
   const dias = {};
   L.forEach(t => (dias[t.data] = dias[t.data] || []).push(t));
-  return Object.keys(dias).map(d => {
+  return Object.keys(dias).sort().reverse().map(d => {
     const arr = dias[d], p = d.split('-');
-    return '<div class="card"><h2>' + p[2] + '/' + p[1] + '<em>' +
+    return '<div class="card"><h2>' + p[2] + '/' + p[1] + (filtro.todos ? '/' + p[0] : '') + '<em>' +
       brl(arr.reduce((s, t) => s + (t.tipo === 'receita' ? t.valor : -t.valor), 0)) + '</em></h2>' +
       arr.map(t => {
         const c = cat(t.catId);
@@ -577,6 +738,57 @@ function vLanc(k) {
           '<span class="del" aria-hidden="true">&rsaquo;</span></div>';
       }).join('') + '</div>';
   }).join('');
+}
+
+function corpoLanc(k) {
+  const ativo = filtroAtivo();
+  const L = (filtro.todos ? D.lanc : doMes(k)).filter(passa).sort((a, b) => b.data.localeCompare(a.data));
+
+  let html = '';
+  if (ativo) {
+    const rm = (k2, txt) => '<button class="chip" data-rmf="' + k2 + '">' + txt + ' ✕</button>';
+    html += '<div class="ativos">' +
+      (filtro.q.trim() ? rm('q', '“' + esc(filtro.q.trim()) + '”') : '') +
+      (filtro.tipo ? rm('tipo', filtro.tipo === 'receita' ? 'Receitas' : 'Despesas') : '') +
+      (filtro.meio ? rm('meio', esc(meioNome(filtro.meio))) : '') +
+      (filtro.cat ? rm('cat', esc(cat(filtro.cat).nome)) : '') +
+      '<button class="chip" data-rmf="all" style="background:transparent">limpar tudo</button></div>';
+  }
+  if (!L.length) {
+    return html + '<div class="card"><div class="empty">' + (ativo
+      ? '<b>Nada encontrado</b>Tente outro termo ou limpe os filtros.'
+      : filtro.todos ? '<b>Nenhum lançamento ainda</b>Toque no + para começar.'
+      : '<b>Nada em ' + MES[cursor.getMonth()] + '</b>Toque no + para começar.') + '</div></div>';
+  }
+  if (ativo || filtro.todos) {
+    const rec = L.filter(t => t.tipo === 'receita').reduce((s, t) => s + t.valor, 0);
+    const des = L.filter(t => t.tipo === 'despesa').reduce((s, t) => s + t.valor, 0);
+    html += '<div class="res-filtro">' + L.length + ' lançamento' + (L.length === 1 ? '' : 's') +
+      ' · entrou ' + brl(rec) + ' · saiu ' + brl(des) + (filtro.todos ? ' · todos os meses' : '') + '</div>';
+  }
+  if (!filtro.todos) return html + diasHtml(L);
+
+  const meses = {};
+  L.forEach(t => (meses[t.comp] = meses[t.comp] || []).push(t));
+  return html + Object.keys(meses).sort().reverse().map(cp => {
+    const arr = meses[cp], p = cp.split('-');
+    const des = arr.filter(t => t.tipo === 'despesa').reduce((s, t) => s + t.valor, 0);
+    return '<div class="mes-h">' + MES[Number(p[1]) - 1] + ' ' + p[0] + '<em>saiu ' + brl(des) + '</em></div>' + diasHtml(arr);
+  }).join('');
+}
+
+function vLanc(k) {
+  return filtroBarra() + '<div id="lanc-corpo">' + corpoLanc(k) + '</div>';
+}
+
+function ligaCorpo() {
+  document.querySelectorAll('#lanc-corpo [data-edit]').forEach(b => b.onclick = () => sheetLanc(b.dataset.edit));
+  document.querySelectorAll('[data-rmf]').forEach(b => b.onclick = () => {
+    const w = b.dataset.rmf;
+    if (w === 'all') { filtro.q = ''; filtro.cat = ''; filtro.meio = ''; filtro.tipo = ''; }
+    else filtro[w] = '';
+    render();
+  });
 }
 
 function vCarteira(k) {
@@ -709,6 +921,29 @@ function vMetas() {
 
 function wire(k) {
   document.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => sheetLanc(b.dataset.edit));
+  const pz = document.getElementById('personalizar'); if (pz) pz.onclick = sheetPainel;
+  document.querySelectorAll('[data-vercart]').forEach(b => b.onclick = () => {
+    const p = b.dataset.vercart.split('-');
+    cursor = new Date(Number(p[0]), Number(p[1]) - 1, 1);
+    selMes = null; selCat = null; tab = 'carteira'; render();
+  });
+  const fq = document.getElementById('lf-q');
+  if (fq) {
+    fq.oninput = () => {
+      filtro.q = fq.value;
+      document.getElementById('lanc-corpo').innerHTML = corpoLanc(k);
+      document.querySelectorAll('#lanc-corpo [data-edit]').forEach(b => b.onclick = () => sheetLanc(b.dataset.edit));
+      ligaCorpo();
+    };
+    ligaCorpo();
+  }
+  const fa = document.getElementById('lf-abrir');
+  if (fa) fa.onclick = () => { filtro.aberto = !(filtro.aberto || nFiltros() > 0); if (!filtro.aberto) { filtro.cat = ''; filtro.meio = ''; filtro.tipo = ''; } render(); };
+  document.querySelectorAll('[data-fscope]').forEach(b => b.onclick = () => { filtro.todos = b.dataset.fscope === 'todos'; render(); });
+  [['data-ftipo', 'tipo', 'ftipo'], ['data-fmeio', 'meio', 'fmeio'], ['data-fcat', 'cat', 'fcat']].forEach(([a, f, d]) =>
+    document.querySelectorAll('[' + a + ']').forEach(b => b.onclick = () => {
+      filtro[f] = filtro[f] === b.dataset[d] ? '' : b.dataset[d]; render();
+    }));
   document.querySelectorAll('[data-orc]').forEach(inp => inp.onchange = async () => {
     const v = parseFloat(String(inp.value).replace(',', '.')) || 0;
     if (v > 0) D.orcs[inp.dataset.orc] = v; else delete D.orcs[inp.dataset.orc];
@@ -1421,7 +1656,7 @@ if ('serviceWorker' in navigator) {
 }
 document.getElementById('prev').onclick = () => { cursor = new Date(cursor.getFullYear(), cursor.getMonth()-1, 1); selMes = null; selCat = null; render(); };
 document.getElementById('next').onclick = () => { cursor = new Date(cursor.getFullYear(), cursor.getMonth()+1, 1); selMes = null; selCat = null; render(); };
-document.querySelectorAll('nav button').forEach(b => b.onclick = () => { tab = b.dataset.tab; render(); });
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => { if (b.dataset.tab !== 'lanc') limparFiltro(); tab = b.dataset.tab; render(); });
 
 if (CFG.url && CFG.token) carregar(); else telaConexao(true);
 </script>
