@@ -223,6 +223,9 @@ html,body{overscroll-behavior:contain}
 
 .voltar{background:none;border:0;color:var(--ink-soft);font-size:14px;font-weight:500;padding:6px 2px;margin:0 0 6px;display:block}
 .fat-topo .fatura{font-size:30px}
+
+.sug{margin-top:7px}
+.sug .chip{padding:6px 11px;font-size:13px;background:var(--surface-2)}
 </style>
 </head>
 <body>
@@ -840,20 +843,21 @@ function ligaCorpo() {
 
 /* ---------- faturas do cartão ---------- */
 
-let cartaoAberto = null, faturaAberta = null, mostrarPagas = false;
+let cartaoAberto = null, faturaAberta = null, mostrarPagas = false, catFatura = null;
 
 function abrirCartao(id, comp) {
-  cartaoAberto = id; faturaAberta = comp || null; mostrarPagas = false;
+  cartaoAberto = id; faturaAberta = comp || null; mostrarPagas = false; catFatura = null;
   render(); window.scrollTo(0, 0);
   anima([{ transform: 'translateX(28px)', opacity: 0 }, { transform: 'none', opacity: 1 }], 220);
 }
 function abrirFatura(comp) {
-  faturaAberta = comp;
+  faturaAberta = comp; catFatura = null;
   render(); window.scrollTo(0, 0);
   anima([{ transform: 'translateX(28px)', opacity: 0 }, { transform: 'none', opacity: 1 }], 220);
 }
 /** Sobe um nível dentro da Carteira (fatura → cartão → lista de cartões). */
 function voltarNivel() {
+  catFatura = null;
   if (faturaAberta) faturaAberta = null; else cartaoAberto = null;
   render(); window.scrollTo(0, 0);
   anima([{ transform: 'translateX(-28px)', opacity: 0 }, { transform: 'none', opacity: 1 }], 220);
@@ -930,6 +934,8 @@ function vFatura(c, cp) {
   L.forEach(t => porCat[t.catId] = (porCat[t.catId] || 0) + t.valor);
   const cats = Object.entries(porCat).sort((a, b) => b[1] - a[1]);
   const tot = st.total || 1;
+  if (catFatura && !porCat[catFatura]) catFatura = null;
+  const Lv = catFatura ? L.filter(t => t.catId === catFatura) : L;
 
   return '<button class="voltar" data-voltar>‹ Faturas de ' + esc(c.nome) + '</button>' +
     '<div class="cartao fat-topo" style="border-left-color:' + c.cor + '">' +
@@ -951,18 +957,19 @@ function vFatura(c, cp) {
       '<button class="del" data-delpag="' + p.id + '">&#10005;</button></div>').join('') + '</div>' : '') +
     '</div>' +
 
-    (cats.length ? '<div class="card"><h2>Por categoria <em>' + cats.length + ' na fatura</em></h2>' +
+    (cats.length ? '<div class="card"><h2>Por categoria <em>toque para ver os lançamentos</em></h2>' +
       cats.map(([id, v]) => {
         const ct = cat(id), pct = v / tot * 100;
-        return '<div class="budget-row"><div class="budget-head">' +
+        return '<div class="budget-row clic' + (catFatura === id ? ' marcada' : '') + '" data-fcatfat="' + id + '"><div class="budget-head">' +
           '<span class="dot" style="background:' + ct.cor + '22;color:' + ct.cor + '">' + ct.icone + '</span>' +
           '<span class="t">' + esc(ct.nome) + '</span>' +
           '<span class="n">' + brl(v) + ' · ' + (pct < 1 ? '<1' : pct.toFixed(0)) + '%</span></div>' +
           '<div class="prog"><span style="width:' + pct.toFixed(1) + '%;background:' + ct.cor + '"></span></div></div>';
       }).join('') + '</div>' : '') +
 
-    '<div class="mes-h" style="text-transform:none">Lançamentos<em>' + L.length + ' item' + (L.length === 1 ? '' : 's') + '</em></div>' +
-    (L.length ? diasHtml(L) : '<div class="card"><div class="empty"><b>Sem lançamentos</b>Esta fatura não tem compras no cartão.</div></div>');
+    '<div class="mes-h" id="fat-lista" style="text-transform:none;scroll-margin-top:72px">Lançamentos<em>' + Lv.length + ' item' + (Lv.length === 1 ? '' : 's') + '</em></div>' +
+    (catFatura ? '<div class="ativos"><button class="chip" data-limpacat>' + cat(catFatura).icone + ' Só ' + esc(cat(catFatura).nome) + ' · ' + brl(porCat[catFatura]) + ' ✕</button></div>' : '') +
+    (L.length ? diasHtml(Lv) : '<div class="card"><div class="empty"><b>Sem lançamentos</b>Esta fatura não tem compras no cartão.</div></div>');
 }
 
 function vCarteira(k) {
@@ -1111,6 +1118,12 @@ function wire(k) {
   document.querySelectorAll('[data-fat]').forEach(b => b.onclick = () => abrirFatura(b.dataset.fat));
   document.querySelectorAll('[data-voltar]').forEach(b => b.onclick = voltarNivel);
   document.querySelectorAll('[data-pagarfat]').forEach(b => b.onclick = () => sheetPagamento(b.dataset.pagarfat, faturaAberta));
+  document.querySelectorAll('[data-fcatfat]').forEach(b => b.onclick = () => {
+    catFatura = catFatura === b.dataset.fcatfat ? null : b.dataset.fcatfat;
+    render();
+    if (catFatura) { const el = document.getElementById('fat-lista'); if (el) el.scrollIntoView({ behavior: reduzMovimento() ? 'auto' : 'smooth', block: 'start' }); }
+  });
+  document.querySelectorAll('[data-limpacat]').forEach(b => b.onclick = () => { catFatura = null; render(); });
   const mp = document.getElementById('mais-pagas'); if (mp) mp.onclick = () => { mostrarPagas = !mostrarPagas; render(); };
   const fq = document.getElementById('lf-q');
   if (fq) {
@@ -1247,7 +1260,8 @@ function sheetLanc(editId, modelo) {
     '<div class="seg" id="tipo" style="margin-top:11px"><button data-tipo="despesa" aria-pressed="' + (tipo === 'despesa') + '">Despesa</button>' +
     '<button data-tipo="receita" aria-pressed="' + (tipo === 'receita') + '">Receita</button></div>' +
 
-    '<label for="f-desc">Descrição</label><input id="f-desc" value="' + (m0 ? esc(m0.desc) : '') + '" placeholder="Mercado, Uber, salário…">' +
+    '<label for="f-desc">Descrição</label><input id="f-desc" autocomplete="off" value="' + (m0 ? esc(m0.desc) : '') + '" placeholder="Mercado, Uber, salário…">' +
+    '<div class="chips sug hide" id="f-sug"></div>' +
 
     '<div id="bloco-base" class="hide"><label>O valor que você tem em mãos</label>' +
     '<div class="seg" id="base"><button data-base="total" aria-pressed="true">Valor total</button>' +
@@ -1397,6 +1411,46 @@ function sheetLanc(editId, modelo) {
   }
 
   drawMeios(); drawCats(); ajustaValor(); sync();
+
+  /* sugestões: descrições já usadas, só do mesmo tipo (despesa/receita), mais usadas primeiro */
+  const fdesc = document.getElementById('f-desc'), fsug = document.getElementById('f-sug');
+  function sugestoes(q) {
+    const nq = norm(q.trim()), mapa = {};
+    D.lanc.forEach(x => {
+      if (x.tipo !== tipo || !x.desc || !String(x.desc).trim()) return;
+      const k = norm(String(x.desc).trim());
+      const m = mapa[k] || (mapa[k] = { k: k, n: 0, ult: x });
+      m.n++; if (x.data > m.ult.data) m.ult = x;
+    });
+    let l = Object.keys(mapa).map(k => mapa[k]);
+    if (nq) l = l.filter(s2 => s2.k.indexOf(nq) >= 0 && s2.k !== nq);
+    l.sort((a, b) => ((b.k.indexOf(nq) === 0) - (a.k.indexOf(nq) === 0)) || b.n - a.n || b.ult.data.localeCompare(a.ult.data));
+    return l.slice(0, nq ? 6 : 5);
+  }
+  function mostraSug() {
+    const l = sugestoes(fdesc.value);
+    fsug.classList.toggle('hide', !l.length);
+    fsug.innerHTML = l.map((s2, i) => '<button type="button" class="chip" data-sug="' + i + '" tabindex="-1">' + esc(String(s2.ult.desc).trim()) + '</button>').join('');
+    fsug.querySelectorAll('[data-sug]').forEach(b => {
+      b.onpointerdown = e => e.preventDefault();
+      b.onmousedown = e => e.preventDefault();
+      b.onclick = () => {
+        const s2 = l[Number(b.dataset.sug)];
+        fdesc.value = String(s2.ult.desc).trim();
+        if (!t) {   // lançamento novo: já marca a categoria usada da última vez; na edição, não mexe
+          const c = D.cats.find(c2 => c2.id === s2.ult.catId && (tipo === 'receita' ? c2.receita : !c2.receita));
+          if (c) { catId = c.id; drawCats(); }
+        }
+        fsug.classList.add('hide');
+        const fv = document.getElementById('f-val'); if (fv && !fv.value) fv.focus();
+        sync();
+      };
+    });
+  }
+  let tBlur = null;
+  fdesc.addEventListener('focus', () => { clearTimeout(tBlur); mostraSug(); });
+  fdesc.addEventListener('input', mostraSug);
+  fdesc.addEventListener('blur', () => { clearTimeout(tBlur); tBlur = setTimeout(() => fsug.classList.add('hide'), 300); });
 
   document.querySelectorAll('#escopo button').forEach(b => b.onclick = () => {
     escopo = b.dataset.escopo;
