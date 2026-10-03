@@ -226,6 +226,14 @@ html,body{overscroll-behavior:contain}
 
 .sug{margin-top:7px}
 .sug .chip{padding:6px 11px;font-size:13px;background:var(--surface-2)}
+
+.proj-hero{margin:2px 0 4px}
+.proj-hero .big{font-family:"Bricolage Grotesque";font-size:34px;font-weight:700;letter-spacing:-.02em;line-height:1.1}
+.proj-hero .big.neg{color:var(--rust)} .proj-hero .big.pos{color:var(--green)}
+.proj-linha{font-size:13px;color:var(--ink-soft);margin:4px 0}
+.proj-linha b{color:var(--ink);font-weight:600}
+.proj-linha .ok{color:var(--green);font-weight:600} .proj-linha .mal{color:var(--rust);font-weight:600}
+.proj-mes small{display:block;font-size:11.5px;color:var(--ink-soft)}
 </style>
 </head>
 <body>
@@ -585,6 +593,7 @@ const BLOCOS = [
   { id: 'fluxo',      nome: 'Entrou e saiu' },
   { id: 'forma',      nome: 'À vista e cartão' },
   { id: 'faturas',    nome: 'Faturas em aberto' },
+  { id: 'projecao',   nome: 'Projeção do saldo e gasto por dia' },
   { id: 'grafico',    nome: 'Despesas mês a mês' },
   { id: 'saldo',      nome: 'Saldo em conta' },
   { id: 'categorias', nome: 'Por categoria' }
@@ -647,6 +656,115 @@ function sheetPainel() {
   document.getElementById('p-ok').onclick = closeSheet;
 }
 
+/* ---------- projeção do saldo e gasto por dia ---------- */
+
+const colchaoAtual = () => Math.max(0, Number((D.prefs || {}).colchao) || 0);
+const r2 = n => Math.round(n * 100) / 100;
+
+/** Saldo previsto no fim de cada um dos próximos 6 meses (mês atual + 5) e quanto dá para gastar por dia. */
+function projecao() {
+  const hoje = hojeISO(), mAtual = hoje.slice(0, 7), colchao = colchaoAtual();
+  const saldo0 = D.contas.reduce((s2, c) => s2 + saldoConta(c.id), 0);
+
+  // tudo que ainda vai mexer na conta, com a data em que mexe
+  const ev = [];
+  D.lanc.forEach(t => {
+    if (t.meio === 'cartao' || !t.data || t.data <= hoje) return;      // cartão sai só quando a fatura é paga
+    ev.push({ d: t.data, v: t.tipo === 'receita' ? t.valor : -t.valor });
+  });
+  D.pagamentos.forEach(p => { if (p.data && p.data > hoje) ev.push({ d: p.data, v: -p.valor }); });
+  let vencidas = 0;
+  D.cartoes.forEach(c => {
+    new Set(D.lanc.filter(t => t.cartao === c.id && t.tipo === 'despesa').map(t => t.comp)).forEach(cp => {
+      const st = situacao(c, cp);
+      if (st.resta <= 0.009) return;
+      if (st.venc < hoje) vencidas += st.resta;                        // já venceu: conta como saída imediata
+      ev.push({ d: st.venc < hoje ? hoje : st.venc, v: -st.resta });
+    });
+  });
+
+  const fimDe = k => k + '-' + String(new Date(Number(k.slice(0, 4)), Number(k.slice(5, 7)), 0).getDate()).padStart(2, '0');
+  const meses = []; let acum = saldo0, ant = '';
+  for (let i = 0; i < 6; i++) {
+    const k = somaComp(mAtual, i), fim = fimDe(k);
+    let entra = 0, sai = 0;
+    ev.forEach(e => { if (e.d <= fim && (i === 0 || e.d > ant)) { if (e.v > 0) entra += e.v; else sai -= e.v; } });
+    acum = r2(acum + entra - sai);
+    meses.push({ k: k, entra: r2(entra), sai: r2(sai), saldo: acum });
+    ant = fim;
+  }
+
+  // mês atual: quanto dá para gastar por dia à vista e ficar acima do colchão
+  const m0 = meses[0];
+  const diaHoje = Number(hoje.slice(8)), ultimo = Number(fimDe(mAtual).slice(8));
+  const dias = ultimo - diaHoje + 1;                                   // hoje conta como um dia que ainda resta
+  const aVista = D.lanc.filter(t => t.meio !== 'cartao' && t.tipo === 'despesa');
+  const gastoHoje = r2(aVista.filter(t => t.data === hoje).reduce((s2, t) => s2 + t.valor, 0));
+  const folga = r2(m0.saldo - colchao);                                // o que sobra para gastar, além do colchão
+  const porDia = folga >= 0 ? r2((folga + gastoHoje) / dias) : 0;
+  const restaHoje = folga >= 0 ? r2(porDia - gastoHoje) : 0;
+  // ritmo: gasto à vista do mês, sem contas fixas (aluguel e afins distorcem a média)
+  const gastoMes = aVista.filter(t => !t.fixo && t.data >= mAtual + '-01' && t.data <= hoje).reduce((s2, t) => s2 + t.valor, 0);
+  const ritmoBruto = gastoMes / diaHoje, ritmo = r2(ritmoBruto);
+  const estFinal = r2(m0.saldo - Math.max(0, ritmoBruto * dias - gastoHoje));
+  const noCartao = r2(D.lanc.filter(t => t.meio === 'cartao' && t.tipo === 'despesa' && t.data.slice(0, 7) === mAtual).reduce((s2, t) => s2 + t.valor, 0));
+
+  return { saldo0: saldo0, meses: meses, colchao: colchao, dias: dias, folga: folga, porDia: porDia, restaHoje: restaHoje,
+           gastoHoje: gastoHoje, ritmo: ritmo, estFinal: estFinal, noCartao: noCartao, vencidas: r2(vencidas), ultimo: ultimo };
+}
+
+function blocoProjecao() {
+  if (!D.contas.length) return '';
+  const p = projecao(), m0 = p.meses[0];
+  const cor = v => v < 0 ? 'var(--rust)' : v < p.colchao ? 'var(--ochre)' : 'inherit';
+  const hero = p.folga < 0
+    ? '<div class="proj-hero"><div class="big neg">faltam ' + brl(-p.folga) + '</div>' +
+      '<div class="proj-linha">Mesmo sem nenhum gasto novo, o saldo previsto no fim do mês (' + brl(m0.saldo) + ') fica ' +
+      (p.colchao > 0 ? 'abaixo do colchão de ' + brl(p.colchao) : 'negativo') + '.</div></div>'
+    : '<div class="proj-hero"><div class="big pos">' + brl(p.porDia) + '</div>' +
+      '<div class="proj-linha"><b>pode gastar por dia</b> à vista (Pix, débito, dinheiro), nos ' + p.dias + ' dia' + (p.dias === 1 ? '' : 's') +
+      ' que restam em ' + MES[Number(m0.k.slice(5)) - 1] + ', hoje incluído.</div></div>';
+  const hoje = p.folga < 0 ? '' :
+    '<div class="proj-linha">' + (p.restaHoje >= 0
+      ? 'Hoje ainda pode gastar <b>' + brl(p.restaHoje) + '</b>' + (p.gastoHoje > 0 ? ' (já gastou ' + brl(p.gastoHoje) + ')' : '')
+      : '<span class="mal">Hoje já passou ' + brl(-p.restaHoje) + ' do limite</span> (gastou ' + brl(p.gastoHoje) + ')') + '.</div>';
+  const ritmo = p.ritmo > 0
+    ? '<div class="proj-linha">Seu ritmo à vista é de <b>' + brl(p.ritmo) + '</b> por dia (sem contas fixas). Nesse ritmo você termina o mês com <span class="' +
+      (p.estFinal >= p.colchao ? 'ok' : 'mal') + '">' + brl(p.estFinal) + '</span>.</div>'
+    : '<div class="proj-linha">Ainda sem gastos à vista variáveis neste mês.</div>';
+  return '<div class="card"><h2>Projeção do saldo <em>a partir de hoje</em></h2>' + hero + hoje + ritmo +
+    '<div class="proj-linha">No cartão este mês: <b>' + brl(p.noCartao) + '</b> — pesa nas próximas faturas, não no caixa de agora.</div>' +
+    (p.vencidas > 0 ? '<div class="proj-linha"><span class="mal">Inclui ' + brl(p.vencidas) + ' de faturas vencidas e não pagas.</span></div>' : '') +
+    '<div style="margin-top:8px">' + p.meses.map((m, i) => {
+      const d = m.k.split('-');
+      return '<div class="row proj-mes"><span class="t"><b>' + rotuloComp(m.k) + (i === 0 ? ' · fim do mês' : '') + '</b>' +
+        '<small>entra ' + brl(m.entra) + ' · sai ' + brl(m.sai) + '</small></span>' +
+        '<span class="v" style="color:' + cor(m.saldo) + '">' + brl(m.saldo) + '</span></div>';
+    }).join('') + '</div>' +
+    '<p class="tiny" style="margin:8px 0 0">Considera o saldo de hoje, o que já está lançado com data futura e as faturas a pagar. ' +
+    'Salário, aluguel ou parcela ainda não lançados não entram na conta.</p>' +
+    '<button class="ghost" id="colchao" style="margin-top:8px">Colchão mínimo: ' + brl(p.colchao) + ' · alterar</button></div>';
+}
+
+function sheetColchao() {
+  openSheet('<h2>Colchão mínimo</h2>' +
+    '<p class="tiny" style="margin:0 0 4px">Quanto você quer que sobre na conta no fim do mês. O "pode gastar por dia" já desconta esse valor.</p>' +
+    '<label for="co-val">Valor (R$)</label>' +
+    '<input id="co-val" type="text" inputmode="decimal" placeholder="0,00" value="' + (colchaoAtual() ? brlNum(colchaoAtual()) : '') + '">' +
+    '<button class="primary" id="co-salvar">Salvar</button>' +
+    '<button class="ghost" id="co-cancel">Cancelar</button>');
+  document.getElementById('co-cancel').onclick = closeSheet;
+  document.getElementById('co-salvar').onclick = async function () {
+    const txt = document.getElementById('co-val').value.trim();
+    const v = txt === '' ? 0 : num(txt);
+    if (isNaN(v) || v < 0) { alert('Informe um valor válido (ex.: 500 ou 500,00).'); return; }
+    D.prefs = D.prefs || {}; D.prefs.colchao = String(v);
+    closeSheet(); render(); salvarCache();
+    try { await api('salvarPrefs', 'colchao', String(v)); toast('Colchão salvo'); }
+    catch (e) { toast('Falhou ao salvar'); }
+  };
+}
+
 /** Para cada cartão, a próxima fatura com saldo a pagar (e quantas vêm depois). */
 function blocoFaturas() {
   if (!D.cartoes.length) return '';
@@ -688,6 +806,8 @@ function vResumo(k) {
       '<div class="stat"><b>' + brl(noCartao) + '</b><small>nas faturas de cartão</small></div></div>',
 
     faturas: () => blocoFaturas(),
+
+    projecao: () => blocoProjecao(),
 
     grafico: () => linhaDoTempo(k),
 
@@ -1114,6 +1234,7 @@ function vMetas() {
 function wire(k) {
   document.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => sheetLanc(b.dataset.edit));
   const pz = document.getElementById('personalizar'); if (pz) pz.onclick = sheetPainel;
+  const co = document.getElementById('colchao'); if (co) co.onclick = sheetColchao;
   document.querySelectorAll('[data-vercart]').forEach(b => b.onclick = () => {
     const p = b.dataset.vercart.split('|');
     tab = 'carteira'; abrirCartao(p[0], p[1]);
