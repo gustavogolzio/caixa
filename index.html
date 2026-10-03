@@ -462,9 +462,10 @@ function render() {
     : '';
   document.getElementById('view').innerHTML = aviso +
     ({resumo:vResumo, lanc:vLanc, carteira:vCarteira, orc:vOrc, metas:vMetas})[tab](k);
-  if (anima) document.querySelectorAll('.graf, .ribbon .bar').forEach(e => e.classList.add('anima'));
+  if (anima) document.querySelectorAll('.graf').forEach(e => e.classList.add('anima'));
   wire(k);
   if (!offline) salvarCache();
+  sincronizaHistorico();
 }
 
 /* ---------- telas ---------- */
@@ -577,7 +578,7 @@ function linhaDoTempo(k) {
 /* ---------- painel do Resumo: blocos independentes ---------- */
 
 const BLOCOS = [
-  { id: 'sobra',      nome: 'Sobra do mês e barra de categorias' },
+  { id: 'sobra',      nome: 'Sobra do mês' },
   { id: 'fluxo',      nome: 'Entrou e saiu' },
   { id: 'forma',      nome: 'À vista e cartão' },
   { id: 'faturas',    nome: 'Faturas em aberto' },
@@ -669,23 +670,13 @@ function vResumo(k) {
   const porCat = {};
   L.filter(x => x.tipo === 'despesa').forEach(x => porCat[x.catId] = (porCat[x.catId] || 0) + x.valor);
   const cats = Object.entries(porCat).sort((a, b) => b[1] - a[1]);
-  const tot = t.des || 1;
   if (selCat && !porCat[selCat]) selCat = null;
-  const barras = cats.map(([id, v]) =>
-    '<span data-seg="' + id + '" class="' + (selCat && selCat !== id ? 'apagado' : '') + '" style="width:' +
-    (v/tot*100).toFixed(2) + '%;background:' + cat(id).cor + '"></span>').join('');
-  const leg = selCat
-    ? '<span><i style="background:' + cat(selCat).cor + '"></i>' + esc(cat(selCat).nome) + ' ' +
-      brl(porCat[selCat]) + ' · ' + (porCat[selCat]/tot*100).toFixed(0) + '% do mês</span>'
-    : cats.slice(0, 5).map(([id, v]) => '<span><i style="background:' + cat(id).cor + '"></i>' + esc(cat(id).nome) + ' ' + brl(v) + '</span>').join('');
 
   const B = {
     sobra: () => '<section class="ribbon"><div class="figs"><div>' +
       '<div class="saldo ' + (t.saldo < 0 ? 'neg' : 'pos') + '">' + brl(t.saldo) + '</div>' +
       '<div class="tiny">sobra do mês</div></div>' +
-      '<div class="sub">' + L.length + ' lançamento' + (L.length === 1 ? '' : 's') + '</div></div>' +
-      '<div class="bar">' + (barras || '<span style="width:100%;background:var(--surface-2)"></span>') + '</div>' +
-      '<div class="legend">' + (leg || 'Sem despesas nesta competência.') + '</div></section>',
+      '<div class="sub">' + L.length + ' lançamento' + (L.length === 1 ? '' : 's') + '</div></div></section>',
 
     fluxo: () => '<div class="duo"><div class="stat in"><b>' + brl(t.rec) + '</b><small>entrou</small></div>' +
       '<div class="stat out"><b>' + brl(t.des) + '</b><small>saiu</small></div></div>',
@@ -853,22 +844,42 @@ let cartaoAberto = null, faturaAberta = null, mostrarPagas = false;
 
 function abrirCartao(id, comp) {
   cartaoAberto = id; faturaAberta = comp || null; mostrarPagas = false;
-  try { history.pushState({ n: 1 }, ''); if (comp) history.pushState({ n: 2 }, ''); } catch (e) {}
   render(); window.scrollTo(0, 0);
   anima([{ transform: 'translateX(28px)', opacity: 0 }, { transform: 'none', opacity: 1 }], 220);
 }
 function abrirFatura(comp) {
   faturaAberta = comp;
-  try { history.pushState({ n: 2 }, ''); } catch (e) {}
   render(); window.scrollTo(0, 0);
   anima([{ transform: 'translateX(28px)', opacity: 0 }, { transform: 'none', opacity: 1 }], 220);
 }
-window.addEventListener('popstate', () => {
-  if (faturaAberta) faturaAberta = null;
-  else if (cartaoAberto) cartaoAberto = null;
-  else return;
+/** Sobe um nível dentro da Carteira (fatura → cartão → lista de cartões). */
+function voltarNivel() {
+  if (faturaAberta) faturaAberta = null; else cartaoAberto = null;
   render(); window.scrollTo(0, 0);
   anima([{ transform: 'translateX(-28px)', opacity: 0 }, { transform: 'none', opacity: 1 }], 220);
+}
+
+/* ---------- botão voltar do celular ----------
+   Ordem: fecha a folha aberta → sobe um nível na Carteira → volta ao Resumo → só então sai do app.
+   Há no máximo UMA entrada extra no histórico, criada só quando existe algo para voltar. */
+let guardaHist = false, descartando = false, sheetAberta = false;
+const ehRaiz = () => !sheetAberta && !cartaoAberto && tab === 'resumo';
+function sincronizaHistorico() {
+  if (!ehRaiz() && !guardaHist) {
+    try { history.pushState({ g: 1 }, ''); guardaHist = true; } catch (e) {}
+  } else if (ehRaiz() && guardaHist) {
+    descartando = true; guardaHist = false;
+    setTimeout(() => { descartando = false; }, 400);
+    try { history.back(); } catch (e) { descartando = false; }
+  }
+}
+window.addEventListener('popstate', () => {
+  if (descartando) { descartando = false; return; }
+  guardaHist = false;
+  if (sheetAberta) closeSheet();
+  else if (faturaAberta || cartaoAberto) voltarNivel();
+  else if (tab !== 'resumo') trocaAba('resumo');
+  sincronizaHistorico();
 });
 
 const rotuloComp = cp => { const m = MES[Number(cp.slice(5)) - 1]; return m.charAt(0).toUpperCase() + m.slice(1) + ' ' + cp.slice(0, 4); };
@@ -1098,7 +1109,7 @@ function wire(k) {
   });
   document.querySelectorAll('[data-vercartao]').forEach(b => b.onclick = () => abrirCartao(b.dataset.vercartao));
   document.querySelectorAll('[data-fat]').forEach(b => b.onclick = () => abrirFatura(b.dataset.fat));
-  document.querySelectorAll('[data-voltar]').forEach(b => b.onclick = () => history.back());
+  document.querySelectorAll('[data-voltar]').forEach(b => b.onclick = voltarNivel);
   document.querySelectorAll('[data-pagarfat]').forEach(b => b.onclick = () => sheetPagamento(b.dataset.pagarfat, faturaAberta));
   const mp = document.getElementById('mais-pagas'); if (mp) mp.onclick = () => { mostrarPagas = !mostrarPagas; render(); };
   const fq = document.getElementById('lf-q');
@@ -1173,9 +1184,11 @@ let tSheet = null;
 function openSheet(html) {
   clearTimeout(tSheet); sheet.classList.remove('saindo');
   sheet.innerHTML = '<div class="grab"></div>' + html; sheet.classList.add('on'); scrim.classList.add('on');
+  sheetAberta = true; sincronizaHistorico();
 }
 function closeSheet() {
   if (!sheet.classList.contains('on')) return;
+  sheetAberta = false; sincronizaHistorico();
   scrim.classList.remove('on');
   if (reduzMovimento()) { sheet.classList.remove('on'); return; }
   sheet.classList.add('saindo');
