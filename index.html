@@ -758,10 +758,14 @@ function filtroBarra() {
     (filtro.aberto ?
       '<div class="flab">Tipo</div><div class="chips rolagem">' +
         chip('data-ftipo', 'despesa', filtro.tipo === 'despesa', 'Despesas') + chip('data-ftipo', 'receita', filtro.tipo === 'receita', 'Receitas') + '</div>' +
-      '<div class="flab">Meio de pagamento</div><div class="chips rolagem">' +
-        meios.map(m => chip('data-fmeio', m, filtro.meio === m, esc(meioNome(m)))).join('') + '</div>' +
-      '<div class="flab">Categoria</div><div class="chips rolagem">' +
-        D.cats.map(c => chip('data-fcat', c.id, filtro.cat === c.id, c.icone + ' ' + esc(c.nome))).join('') + '</div>' +
+      '<div class="two" style="margin-top:2px"><div><div class="flab">Meio de pagamento</div>' +
+        '<select id="lf-meio" aria-label="Meio de pagamento"><option value="">Todos</option>' +
+        meios.map(m => '<option value="' + m + '"' + (filtro.meio === m ? ' selected' : '') + '>' + esc(meioNome(m)) + '</option>').join('') + '</select></div>' +
+      '<div><div class="flab">Categoria</div>' +
+        '<select id="lf-cat" aria-label="Categoria"><option value="">Todas</option>' +
+        '<optgroup label="Despesas">' + D.cats.filter(c => !c.receita).map(c => '<option value="' + c.id + '"' + (filtro.cat === c.id ? ' selected' : '') + '>' + c.icone + ' ' + esc(c.nome) + '</option>').join('') + '</optgroup>' +
+        '<optgroup label="Receitas">' + D.cats.filter(c => c.receita).map(c => '<option value="' + c.id + '"' + (filtro.cat === c.id ? ' selected' : '') + '>' + c.icone + ' ' + esc(c.nome) + '</option>').join('') + '</optgroup>' +
+        '</select></div></div>' +
         (filtroAtivo() ? '<button class="ghost" id="lf-limpar" style="margin-top:12px">Limpar filtros</button>' : '') : '') +
     '</div>';
 }
@@ -1140,10 +1144,11 @@ function wire(k) {
   const fl = document.getElementById('lf-limpar');
   if (fl) fl.onclick = () => { filtro.q = ''; filtro.cat = ''; filtro.meio = ''; filtro.tipo = ''; render(); };
   document.querySelectorAll('[data-fscope]').forEach(b => b.onclick = () => { filtro.todos = b.dataset.fscope === 'todos'; render(); });
-  [['data-ftipo', 'tipo', 'ftipo'], ['data-fmeio', 'meio', 'fmeio'], ['data-fcat', 'cat', 'fcat']].forEach(([a, f, d]) =>
-    document.querySelectorAll('[' + a + ']').forEach(b => b.onclick = () => {
-      filtro[f] = filtro[f] === b.dataset[d] ? '' : b.dataset[d]; render();
-    }));
+  document.querySelectorAll('[data-ftipo]').forEach(b => b.onclick = () => {
+    filtro.tipo = filtro.tipo === b.dataset.ftipo ? '' : b.dataset.ftipo; render();
+  });
+  const lm = document.getElementById('lf-meio'); if (lm) lm.onchange = () => { filtro.meio = lm.value; render(); };
+  const lc = document.getElementById('lf-cat'); if (lc) lc.onchange = () => { filtro.cat = lc.value; render(); };
   document.querySelectorAll('[data-orc]').forEach(inp => inp.onchange = async () => {
     const v = parseFloat(String(inp.value).replace(',', '.')) || 0;
     if (v > 0) D.orcs[inp.dataset.orc] = v; else delete D.orcs[inp.dataset.orc];
@@ -1273,12 +1278,12 @@ function sheetLanc(editId, modelo) {
     '<input id="f-data" type="date" value="' + (t ? t.data : isoPadrao) + '">' +
     '<input id="f-mes" class="hide" type="month" value="' + (compGrupo || mk(cursor)) + '"></div></div>' +
 
-    '<label>Como foi pago</label><div class="chips" id="f-meios"></div>' +
+    '<label for="f-meio">Como foi pago</label><select id="f-meio"></select>' +
 
     '<div id="bloco-conta"><label for="f-conta">Conta</label><select id="f-conta">' +
     D.contas.map(c => '<option value="' + c.id + '"' + ((m0 && contaDe(m0) === c.id) ? ' selected' : '') + '>' + esc(c.nome) + '</option>').join('') + '</select></div>' +
 
-    '<label>Categoria</label><div class="chips" id="f-cats"></div>' +
+    '<label for="f-cat">Categoria</label><select id="f-cat"></select>' +
 
     '<div id="bloco-cred" class="hide"><label>Forma de pagamento</label>' +
     '<div class="seg" id="forma"><button data-forma="avista" aria-pressed="' + (forma === 'avista') + '">À vista</button>' +
@@ -1301,14 +1306,15 @@ function sheetLanc(editId, modelo) {
     '<button class="ghost" id="f-cancel">Cancelar</button>');
 
   const drawMeios = () => {
-    document.getElementById('f-meios').innerHTML = meios.map(m =>
-      '<button class="chip" data-meio="' + m.id + '" aria-pressed="' + (m.id === meio) + '">' + m.icone + ' ' + esc(m.nome) + '</button>').join('');
-    document.querySelectorAll('[data-meio]').forEach(b => b.onclick = () => { meio = b.dataset.meio; drawMeios(); sync(); });
+    const sel = document.getElementById('f-meio');
+    sel.innerHTML = meios.map(m => '<option value="' + m.id + '"' + (m.id === meio ? ' selected' : '') + '>' + m.icone + ' ' + esc(m.nome) + '</option>').join('');
+    sel.onchange = () => { meio = sel.value; sync(); };
   };
   const drawCats = () => {
-    document.getElementById('f-cats').innerHTML = D.cats.filter(c => tipo === 'receita' ? c.receita : !c.receita)
-      .map(c => '<button class="chip" data-cat="' + c.id + '" aria-pressed="' + (c.id === catId) + '">' + c.icone + ' ' + c.nome + '</button>').join('');
-    document.querySelectorAll('[data-cat]').forEach(b => b.onclick = () => { catId = b.dataset.cat; drawCats(); });
+    const sel = document.getElementById('f-cat');
+    sel.innerHTML = D.cats.filter(c => tipo === 'receita' ? c.receita : !c.receita)
+      .map(c => '<option value="' + c.id + '"' + (c.id === catId ? ' selected' : '') + '>' + c.icone + ' ' + esc(c.nome) + '</option>').join('');
+    sel.onchange = () => { catId = sel.value; };
   };
 
   // ao trocar o escopo, o campo de valor muda de significado
