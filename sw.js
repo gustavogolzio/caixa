@@ -5,7 +5,7 @@
  * AO ATUALIZAR O APP: mude o número da VERSAO abaixo. É isso que faz
  * o celular baixar a versão nova em vez de servir a antiga do cache.
  */
-const VERSAO = 'caixa-v15';
+const VERSAO = 'caixa-v16';
 const CASCA = ['./', './index.html', './manifest.json', './icone-192.png', './icone-512.png'];
 
 self.addEventListener('install', ev => {
