@@ -5,7 +5,7 @@
  * AO ATUALIZAR O APP: mude o número da VERSAO abaixo. É isso que faz
  * o celular baixar a versão nova em vez de servir a antiga do cache.
  */
-const VERSAO = 'caixa-v14';
+const VERSAO = 'caixa-v15';
 const CASCA = ['./', './index.html', './manifest.json', './icone-192.png', './icone-512.png'];
 
 self.addEventListener('install', ev => {
@@ -31,14 +31,15 @@ self.addEventListener('fetch', ev => {
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;       // chamadas ao Apps Script vão direto à rede
 
-  // rede primeiro, cache como rede de segurança
+  // rede primeiro, mas só espera 3 s: com sinal ruim, abre na hora o que está guardado
+  const rede = fetch(req).then(resp => {
+    const copia = resp.clone();
+    caches.open(VERSAO).then(c => c.put(req, copia)).catch(() => {});
+    return resp;
+  });
+  const limite = new Promise((_, rejeita) => setTimeout(rejeita, 3000));
   ev.respondWith(
-    fetch(req)
-      .then(resp => {
-        const copia = resp.clone();
-        caches.open(VERSAO).then(c => c.put(req, copia)).catch(() => {});
-        return resp;
-      })
-      .catch(() => caches.match(req).then(r => r || caches.match('./index.html')))
+    Promise.race([rede, limite]).catch(() =>
+      caches.match(req).then(r => r || caches.match('./index.html')).then(r => r || rede))
   );
 });
