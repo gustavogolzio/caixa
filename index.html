@@ -288,6 +288,11 @@ details.como p{margin:0 0 6px}
 .mais[aria-expanded="true"] small{display:none}
 
 
+/* ===== Detalhe da categoria no Resumo ===== */
+.cat-det{margin:2px 0 12px 12px;padding:6px 0 0 12px;border-left:2px solid var(--line)}
+.cat-comp{font-size:12.5px;color:var(--ink-soft);margin:0 0 2px}
+.cat-det .row:first-of-type{border-top:0}
+.cat-det .ghost{margin:6px 0 0}
 /* ===== Conferir fatura ===== */
 .cf-sum{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:10px 0 4px}
 .cf-sum div{background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:9px 10px;min-width:0}
@@ -1207,6 +1212,23 @@ function sobraPrevista(saldo, k) {
   return '<div class="tiny">com os ' + l.length + ' previsto' + (l.length === 1 ? '' : 's') + ': <b>' + brl(v) + '</b></div>';
 }
 
+/** Detalhe que abre embaixo da categoria tocada no Resumo: variação, maiores lançamentos e atalho para o Extrato. */
+function painelCat(id, k, total) {
+  const itens = doMes(k).filter(t => t.tipo === 'despesa' && t.catId === id).sort((a, b) => b.valor - a.valor);
+  const ant = somaComp(k, -1);
+  const totAnt = doMes(ant).filter(t => t.tipo === 'despesa' && t.catId === id).reduce((s, t) => s + t.valor, 0);
+  const mAnt = MES[Number(ant.slice(5)) - 1];
+  let comp;
+  if (Math.abs(totAnt) < 0.005) comp = 'sem gastos em ' + mAnt;
+  else {
+    const pct = Math.round((total - totAnt) / Math.abs(totAnt) * 100);
+    comp = '<b style="color:' + (pct > 0 ? 'var(--rust)' : pct < 0 ? 'var(--green)' : 'inherit') + '">' + (pct > 0 ? '+' : '') + pct + '%</b> vs ' + mAnt + ' (' + brl(totAnt) + ')';
+  }
+  return '<div class="cat-det"><div class="cat-comp">' + brl(total) + ' · ' + comp + '</div>' +
+    itens.slice(0, 5).map(t => linhaApp(t)).join('') +
+    '<button class="ghost" data-vercat="' + id + '">' + (itens.length > 5 ? 'Ver os ' + itens.length + ' lançamentos no Extrato' : 'Abrir no Extrato') + '</button></div>';
+}
+
 function vResumo(k) {
   const t = somaMes(k), L = doMes(k);
   const noCartao = L.filter(x => x.meio === 'cartao' && x.tipo === 'despesa').reduce((s, x) => s + x.valor, 0);
@@ -1256,7 +1278,7 @@ function vResumo(k) {
           '<span class="t">' + esc(c.nome) + '</span>' +
           '<span class="n ' + (o && v > o ? 'over' : '') + '">' + brl(v) + (o ? ' / ' + brl(o) : '') + '</span></div>' +
           (o ? '<div class="prog"><span style="width:' + Math.max(0, Math.min(100, v/o*100)) + '%;background:' + (v > o ? 'var(--rust)' : c.cor) + '"></span></div>' : '') +
-          '</div>';
+          '</div>' + (selCat === id ? painelCat(id, k, v) : '');
       }).join('') + (cats.length > 5 ? '<button class="ghost" data-exp="cats">' + (expCats ? 'Mostrar só as 5 maiores' : 'Ver todas (' + cats.length + ')') + '</button>' : '')
         : '<div class="empty"><b>Nada lançado neste mês</b>Registre o primeiro gasto ou receita.</div><button class="primary" data-novo style="margin-top:0">Novo lançamento</button>') + '</div>'
   };
@@ -2028,6 +2050,10 @@ function wire(k) {
     const p = b.dataset.ir.split('-');
     cursor = new Date(Number(p[0]), Number(p[1]) - 1, 1);
     selMes = null; selCat = null; render();
+  });
+  document.querySelectorAll('[data-vercat]').forEach(b => b.onclick = () => {
+    filtro = { q: '', cat: b.dataset.vercat, meio: '', tipo: '', todos: false, aberto: true };
+    selCat = null; trocaAba('lanc'); window.scrollTo(0, 0);
   });
   document.querySelectorAll('[data-seg]').forEach(b => b.onclick = () => {
     selCat = (selCat === b.dataset.seg) ? null : b.dataset.seg;
