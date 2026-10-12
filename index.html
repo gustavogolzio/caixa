@@ -286,6 +286,75 @@ details.como p{margin:0 0 6px}
 .mais i{font-style:normal;color:var(--ink-soft);transition:transform var(--dur-fast)}
 .mais[aria-expanded="true"] i{transform:rotate(180deg)}
 .mais[aria-expanded="true"] small{display:none}
+
+/* ===== Desktop (telas largas) ===== */
+.tb-head{display:none}
+@media (min-width:900px){
+  body{padding-left:224px;padding-bottom:0}
+  header{padding:14px 28px}
+  .mhead{max-width:1120px;margin:0 auto}
+  .mhead h1{flex:0 1 auto;margin:0 auto;font-size:21px}
+  main{max-width:1120px;padding:24px 28px 110px}
+  /* menu vira barra lateral */
+  nav{left:0;right:auto;top:0;bottom:0;width:224px;border-top:0;border-right:1px solid var(--line);
+    display:flex;flex-direction:column;gap:4px;padding:22px 12px calc(16px + env(safe-area-inset-bottom))}
+  nav::before{content:"Caixa";font-family:"Bricolage Grotesque","IBM Plex Sans",sans-serif;font-weight:800;font-size:24px;
+    letter-spacing:-.03em;color:var(--green);padding:0 12px 18px}
+  nav button{display:flex;flex-direction:row;align-items:center;justify-content:flex-start;gap:12px;
+    padding:0 12px;min-height:44px;border-radius:10px;font-size:14.5px;text-align:left;
+    transition:background var(--dur-fast) ease}
+  nav button svg{width:21px;height:21px}
+  nav button:hover{background:var(--surface-2)}
+  nav button[aria-current="true"]{background:var(--surface-2)}
+  nav::after{content:"N novo · ← → mês · 1–5 abas · / buscar";margin-top:auto;padding:12px 12px 0;font-size:11.5px;
+    line-height:1.5;color:var(--ink-soft)}
+  .fab{right:32px;bottom:32px}
+  .fab:hover{filter:brightness(1.08)}
+  #toast{bottom:32px}
+  body{-webkit-user-select:text;user-select:text}
+  /* formulário vira janela central */
+  .grab{display:none}
+  .sheet{top:50%;left:50%;right:auto;bottom:auto;width:min(560px,92vw);max-height:88vh;margin:0;
+    border:1px solid var(--line);border-radius:18px;padding:24px 26px 24px;transform:translate(-50%,-50%);
+    box-shadow:0 24px 60px rgba(10,16,13,.28)}
+  .sheet.on{animation:entra var(--dur) var(--ease)}
+  .sheet.saindo{animation:sai var(--dur-fast) ease-in forwards}
+  @keyframes entra{from{opacity:0;transform:translate(-50%,-47%)}to{opacity:1;transform:translate(-50%,-50%)}}
+  @keyframes sai{to{opacity:0;transform:translate(-50%,-47%)}}
+  /* Resumo em grade */
+  #view.v-resumo{column-count:2;column-gap:20px}
+  #view.v-resumo>.aviso,#view.v-resumo .bl-sobra,#view.v-resumo .bl-grafico,#view.v-resumo .bl-projecao{column-span:all}
+  #view.v-resumo .bl{break-inside:avoid}
+  #view.v-carteira,#view.v-orc,#view.v-metas{column-count:2;column-gap:20px}
+  #view.v-carteira>*,#view.v-orc>*,#view.v-metas>*{break-inside:avoid}
+  #view.v-carteira>.aviso,#view.v-orc>.aviso,#view.v-metas>.aviso,#view.v-carteira>.voltar{column-span:all}
+  .card{padding:18px}
+  .hoje{padding:22px}
+  /* Extrato em tabela */
+  .tb-head{display:grid;grid-template-columns:40px minmax(0,2fr) minmax(0,1.2fr) minmax(0,1.2fr) 120px;column-gap:11px;
+    padding:9px 269px 9px 19px;margin:0 0 8px;position:sticky;top:67px;z-index:15;background:var(--paper);
+    border-bottom:1px solid var(--line);font-size:12px;font-weight:600;color:var(--ink-soft)}
+  .tb-head span:nth-child(5){text-align:right}
+  .row.tb{display:grid;grid-template-columns:40px minmax(0,2fr) minmax(0,1.2fr) minmax(0,1.2fr) 120px;column-gap:11px;align-items:center}
+  .row.tb .t,.row.tb .t small{display:contents}
+  .row.tb .t b{grid-column:2}
+  .row.tb .c-cat,.row.tb .c-via{font-size:13px;color:var(--ink-soft);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .row.tb .sep{display:none}
+  .row.tb .v{grid-column:5;font-size:15px}
+  .row.tb .del{display:none}
+}
+@media (min-width:900px) and (pointer:fine){
+  /* mouse: ações aparecem ao passar o cursor, em vez do deslize */
+  .sw-acoes{left:auto;right:12px;top:50%;bottom:auto;transform:translateY(-50%);z-index:3;gap:6px;opacity:0;pointer-events:none;
+    transition:opacity var(--dur-fast) ease}
+  .sw:hover .sw-acoes,.sw:focus-within .sw-acoes{opacity:1;pointer-events:auto}
+  .sw-acoes button,.sw-acoes.dois button{width:auto;min-height:36px;padding:0 12px;border-radius:8px;font-size:12.5px}
+  .sw .row.clic{cursor:pointer;padding-right:250px;transition:background var(--dur-fast) ease}
+  .sw .row.clic:hover{background:var(--surface-2)}
+  .sw .row.clic:focus-visible{outline-offset:-2px}
+  button:hover:not(:disabled){filter:brightness(1.04)}
+  .chip:hover,.step:hover:not(:disabled){background:var(--surface-2)}
+}
 </style>
 </head>
 <body>
@@ -578,6 +647,7 @@ function render() {
     ? '<div class="aviso" style="margin-bottom:12px">Há novidades no app (recorrentes, transferência, ajuste de saldo) que precisam do <b>Code.gs</b> atualizado. ' +
       'Cole o arquivo novo no Apps Script e reimplante em “Nova versão”.</div>'
     : '');
+  document.getElementById('view').className = 'v-' + tab;
   document.getElementById('view').innerHTML = aviso +
     ({resumo:vResumo, lanc:vLanc, carteira:vCarteira, orc:vOrc, metas:vMetas})[tab](k);
   if (anima) document.querySelectorAll('.graf').forEach(e => e.classList.add('anima'));
@@ -1171,7 +1241,7 @@ function vResumo(k) {
 
   const p = painel();
   const vis = p.ordem.filter(id => !p.off.includes(id));
-  return (vis.length ? vis.map(id => B[id]()).join('')
+  return (vis.length ? vis.map(id => { const h = B[id](); return h ? '<div class="bl bl-' + id + '">' + h + '</div>' : ''; }).join('')
     : '<div class="card"><div class="empty"><b>Painel vazio</b>Todos os blocos estão desligados.</div></div>') +
     '<button class="link-suave" id="personalizar">Personalizar painel</button>' +
     '<div class="status">Salvo na sua planilha do Google.</div>';
@@ -1270,9 +1340,9 @@ function diasHtml(L) {
           '<button data-sw="edit" data-id="' + t.id + '">Editar</button>' +
           '<button data-sw="dup" data-id="' + t.id + '">Duplicar</button>' +
           '<button data-sw="del" data-id="' + t.id + '">Excluir</button></div>' +
-          '<div class="row clic" data-edit="' + t.id + '"><span class="dot" style="background:' + c.cor + '22;color:' + c.cor + '">' + c.icone + '</span>' +
-          '<span class="t"><b>' + esc(t.desc) + '</b><small>' + c.nome + ' · ' + esc(via) +
-          (t.parc ? ' · ' + t.parc.i + '/' + t.parc.n : '') + (t.fixo ? ' · fixo' : '') + '</small></span>' +
+          '<div class="row clic tb" data-edit="' + t.id + '" tabindex="0"><span class="dot" style="background:' + c.cor + '22;color:' + c.cor + '">' + c.icone + '</span>' +
+          '<span class="t"><b>' + esc(t.desc) + '</b><small><span class="c-cat">' + c.nome + '</span><i class="sep"> · </i><span class="c-via">' + esc(via) +
+          (t.parc ? ' · ' + t.parc.i + '/' + t.parc.n : '') + (t.fixo ? ' · fixo' : '') + '</span></small></span>' +
           '<span class="v ' + (t.tipo === 'receita' ? 'in' : '') + '">' + (t.tipo === 'receita' ? '+' : '') + brl(t.valor) + '</span>' +
           '<span class="del" aria-hidden="true">&rsaquo;</span></div></div>';
       }).join('') + '</div>';
@@ -1322,7 +1392,7 @@ function corpoLanc(k) {
 }
 
 function vLanc(k) {
-  return filtroBarra() + '<div id="lanc-corpo">' + corpoLanc(k) + '</div>';
+  return filtroBarra() + '<div class="tb-head" aria-hidden="true"><span></span><span>Descrição</span><span>Categoria</span><span>Pago com</span><span>Valor</span><span></span></div><div id="lanc-corpo">' + corpoLanc(k) + '</div>';
 }
 
 function ligaCorpo() {
@@ -2742,6 +2812,29 @@ function trocaAba(nova) {
   document.getElementById('fab').classList.remove('off');
   anima([{ transform: 'translateY(8px)', opacity: 0 }, { transform: 'none', opacity: 1 }], 220);
 }
+
+/* ---------- teclado (computador) ---------- */
+document.addEventListener('keydown', e => {
+  const alvo = e.target, digitando = alvo && /^(INPUT|TEXTAREA|SELECT)$/.test(alvo.tagName);
+  const aberta = sheet.classList.contains('on');
+  if (e.key === 'Escape') { if (aberta) { e.preventDefault(); closeSheet(); } else if (digitando && alvo.id === 'lf-q') alvo.blur(); return; }
+  if (aberta) {
+    // Enter em campo de texto salva; Ctrl/⌘+Enter salva de qualquer lugar do formulário
+    const salvar = document.getElementById('f-salvar');
+    if (salvar && e.key === 'Enter' && !e.shiftKey && !e.altKey && ((e.ctrlKey || e.metaKey) || (alvo && alvo.tagName === 'INPUT' && alvo.type !== 'checkbox' && alvo.type !== 'radio'))) { e.preventDefault(); salvar.click(); }
+    return;
+  }
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  if (alvo && alvo.classList && alvo.classList.contains('clic') && alvo.dataset.edit && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); editar(alvo.dataset.edit); return; }
+  if (digitando) return;
+  const k = e.key;
+  if (k === 'n' || k === 'N') { e.preventDefault(); document.getElementById('fab').click(); }
+  else if (k === 'ArrowLeft' && !document.getElementById('prev').disabled) { e.preventDefault(); mudaMes(-1); }
+  else if (k === 'ArrowRight' && !document.getElementById('next').disabled) { e.preventDefault(); mudaMes(1); }
+  else if (/^[1-5]$/.test(k)) { const b = document.querySelectorAll('nav button')[Number(k) - 1]; if (b) trocaAba(b.dataset.tab); }
+  else if (k === '/') { e.preventDefault(); trocaAba('lanc'); const q = document.getElementById('lf-q'); if (q) q.focus(); }
+});
+
 document.getElementById('prev').onclick = () => mudaMes(-1);
 document.getElementById('next').onclick = () => mudaMes(1);
 document.querySelectorAll('nav button').forEach(b => b.onclick = () => trocaAba(b.dataset.tab));
