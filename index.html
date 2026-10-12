@@ -351,24 +351,26 @@ details.como p{margin:0 0 6px}
   .hoje{padding:22px}
   /* Extrato em tabela */
   .tb-head{display:grid;grid-template-columns:40px minmax(0,2fr) minmax(0,1.2fr) minmax(0,1.2fr) 120px;column-gap:11px;
-    padding:9px 269px 9px 19px;margin:0 0 8px;position:sticky;top:67px;z-index:15;background:var(--paper);
+    padding:9px 309px 9px 19px;margin:0 0 8px;position:sticky;top:67px;z-index:15;background:var(--paper);
     border-bottom:1px solid var(--line);font-size:12px;font-weight:600;color:var(--ink-soft)}
   .tb-head span:nth-child(5){text-align:right}
-  .row.tb{display:grid;grid-template-columns:40px minmax(0,2fr) minmax(0,1.2fr) minmax(0,1.2fr) 120px;column-gap:11px;align-items:center}
-  .row.tb .t,.row.tb .t small{display:contents}
-  .row.tb .t b{grid-column:2}
-  .row.tb .c-cat,.row.tb .c-via{font-size:13px;color:var(--ink-soft);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .row.tb .sep{display:none}
-  .row.tb .v{grid-column:5;font-size:15px}
-  .row.tb .del{display:none}
+  #lanc-corpo .row.tb{display:grid;grid-template-columns:40px minmax(0,2fr) minmax(0,1.2fr) minmax(0,1.2fr) 120px;column-gap:11px;align-items:center}
+  #lanc-corpo .row.tb .t,#lanc-corpo .row.tb .t small{display:contents}
+  #lanc-corpo .row.tb .t b{grid-column:2}
+  #lanc-corpo .row.tb .c-cat,#lanc-corpo .row.tb .c-via{font-size:13px;color:var(--ink-soft);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #lanc-corpo .row.tb .sep{display:none}
+  #lanc-corpo .row.tb .v{grid-column:5;font-size:15px}
+  #lanc-corpo .row.tb .del{display:none}
 }
 @media (min-width:900px) and (pointer:fine){
   /* mouse: ações aparecem ao passar o cursor, em vez do deslize */
-  .sw-acoes{left:auto;right:12px;top:50%;bottom:auto;transform:translateY(-50%);z-index:3;gap:6px;opacity:0;pointer-events:none;
+  .sw-acoes{display:none}
+  #lanc-corpo .sw-acoes{display:flex;left:auto;right:0;padding:0 12px 0 28px;background:linear-gradient(90deg,transparent,var(--surface-2) 22px);top:0;bottom:0;align-items:center;z-index:3;gap:6px;opacity:0;pointer-events:none;
     transition:opacity var(--dur-fast) ease}
-  .sw:hover .sw-acoes,.sw:focus-within .sw-acoes{opacity:1;pointer-events:auto}
-  .sw-acoes button,.sw-acoes.dois button{width:auto;min-height:36px;padding:0 12px;border-radius:8px;font-size:12.5px}
-  .sw .row.clic{cursor:pointer;padding-right:250px;transition:background var(--dur-fast) ease}
+  #lanc-corpo .sw:hover .sw-acoes,#lanc-corpo .sw:focus-within .sw-acoes{opacity:1;pointer-events:auto}
+  #lanc-corpo .sw-acoes button,#lanc-corpo .sw-acoes.dois button{width:auto;min-height:36px;padding:0 12px;border-radius:8px;font-size:12.5px}
+  .sw .row.clic{cursor:pointer;transition:background var(--dur-fast) ease}
+  #lanc-corpo .sw .row.clic{padding-right:290px;transition:background var(--dur-fast) ease}
   .sw .row.clic:hover{background:var(--surface-2)}
   .sw .row.clic:focus-visible{outline-offset:-2px}
   button:hover:not(:disabled){filter:brightness(1.04)}
