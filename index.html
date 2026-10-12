@@ -287,6 +287,25 @@ details.como p{margin:0 0 6px}
 .mais[aria-expanded="true"] i{transform:rotate(180deg)}
 .mais[aria-expanded="true"] small{display:none}
 
+
+/* ===== Conferir fatura ===== */
+.cf-sum{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:10px 0 4px}
+.cf-sum div{background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:9px 10px;min-width:0}
+.cf-sum small{display:block;font-size:11.5px;color:var(--ink-soft)}
+.cf-sum b{display:block;font-size:15px;font-weight:700;white-space:nowrap}
+.cf-sum .bad b{color:var(--rust)} .cf-sum .good b{color:var(--green)}
+.cf-grupo{margin-top:16px}
+.cf-grupo h3{font-family:"Bricolage Grotesque","IBM Plex Sans",sans-serif;font-size:14px;margin:0 0 2px;display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+.cf-grupo h3 em{font-style:normal;font-family:"IBM Plex Sans",sans-serif;font-weight:500;font-size:12px;color:var(--ink-soft)}
+.cf-grupo .tiny{margin:0 0 4px}
+.cf-acoes{display:flex;gap:8px;margin:-4px 0 8px 44px}
+.cf-sep{border-top:2px solid var(--line);margin:2px 0}
+.cf-ok{margin-top:14px;padding:12px;border-radius:10px;background:var(--surface-2);font-weight:600;color:var(--green)}
+#cf-txt{width:100%;min-height:130px;font:13px/1.45 ui-monospace,Menlo,Consolas,monospace;padding:10px 12px;border:1px solid var(--line);background:var(--paper);color:inherit;border-radius:10px;resize:vertical;-webkit-user-select:text;user-select:text}
+.cf-botoes{display:flex;gap:8px;margin-top:8px}
+.cf-botoes .primary{margin:0;flex:1}
+.cf-botoes .ghost{margin:0;width:auto;padding:0 16px}
+
 /* ===== Desktop (telas largas) ===== */
 .tb-head{display:none}
 @media (min-width:900px){
@@ -1491,6 +1510,193 @@ function vCartaoFaturas(c) {
     (mostrarPagas && pagas.length ? '<div class="card"><h2>Pagas <em>mais recentes primeiro</em></h2>' + pagas.map(linha).join('') + '</div>' : '');
 }
 
+
+/* ---------- conferir fatura com o texto do banco ---------- */
+
+let conf = { chave: null, txt: '', ign: [] };   // texto colado, por fatura; "ignorar" vale só até sair da tela
+
+const normaliza = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+const tokens = s => normaliza(s).split(' ').filter(w => w.length >= 3 && !/^\d+$/.test(w));
+/** Parecença entre duas descrições, de 0 a 1 (quantas palavras de uma aparecem na outra). */
+function parecido(a, b) {
+  const A = tokens(a), B = tokens(b); if (!A.length || !B.length) return 0;
+  let n = 0;
+  A.forEach(x => { if (B.some(y => x === y || (x.length >= 4 && y.length >= 4 && (x.indexOf(y) === 0 || y.indexOf(x) === 0)))) n++; });
+  return n / Math.min(A.length, B.length);
+}
+const cents = v => Math.round(v * 100);
+const diasEntre = (a, b) => Math.abs(new Date(a + 'T12:00:00') - new Date(b + 'T12:00:00')) / 86400000;
+const parcTxt = p => p ? p.i + '/' + p.n : 'à vista';
+
+/**
+ * Lê as compras coladas do PDF/app do banco. Cada compra: DD/MM descrição [NN/NN] cidade valor.
+ * Linhas que não começam com data ou não terminam com valor são ignoradas (cabeçalhos, limites, avisos).
+ */
+function lerFatura(txt, comp) {
+  const mesF = Number(comp.slice(5)), anoF = Number(comp.slice(0, 4));
+  const r = { compras: [], creditos: [], incompletas: [], ignoradas: 0 };
+  let linhas = String(txt).replace(/ /g, ' ').split(/\r?\n/);
+  // texto colado numa linha só: separa antes de cada "DD/MM descrição ... valor"
+  if (linhas.length < 3) {
+    const achados = String(txt).replace(/\s+/g, ' ').match(/\d{2}\/\d{2}\s.+?\s-?\d{1,3}(?:\.\d{3})*,\d{2}(?=\s+\d{2}\/\d{2}\s|\s*$)/g);
+    if (achados && achados.length >= 3) linhas = achados;
+  }
+  linhas.forEach(raw => {
+    const l = raw.replace(/\s+/g, ' ').trim(); if (!l) return;
+    const m = l.match(/^(\d{2})\/(\d{2})\s+(.+)$/);
+    if (!m || +m[2] < 1 || +m[2] > 12 || +m[1] < 1 || +m[1] > 31) { r.ignoradas++; return; }
+    const v = m[3].match(/^(.*\S)\s+(?:R\$\s*)?(-?)(\d{1,3}(?:\.\d{3})+|\d+),(\d{2})(?:\s*(CR|C))?$/);
+    if (!v) { if (/\d,\d?$/.test(m[3])) r.incompletas.push(l); else r.ignoradas++; return; }
+    let valor = Number(v[3].replace(/\./g, '') + '.' + v[4]);
+    const credito = v[2] === '-' || !!v[5] || /pagamento|pgto|estorno|credito|crédito/i.test(v[1]);
+    // parcela NN/NN, às vezes grudada na descrição ("JOALHE03/05") ou na cidade
+    let parc = null, desc = v[1];
+    const re = /(\d{2})\/(\d{2})(?!\d)/g; let pm, ult = null;
+    while ((pm = re.exec(v[1]))) ult = pm;
+    if (ult) {
+      const i = +ult[1], n = +ult[2];
+      if (n >= 2 && i >= 1 && i <= n) { parc = { i: i, n: n }; desc = v[1].slice(0, ult.index); }
+    }
+    desc = desc.replace(/\s+/g, ' ').trim();
+    const mes = +m[2], dia = +m[1];
+    const ano = mes > mesF ? anoF - 1 : anoF;
+    const it = { data: ano + '-' + String(mes).padStart(2, '0') + '-' + String(dia).padStart(2, '0'), desc: desc || v[1], parc: parc, valor: valor, bruto: l };
+    (credito ? r.creditos : r.compras).push(it);
+  });
+  r.compras.forEach((b, i) => b.chave = i + '|' + b.data + '|' + cents(b.valor) + '|' + normaliza(b.desc));
+  return r;
+}
+
+/** Casa as compras do banco com os lançamentos da fatura, do mais seguro ao mais frouxo. */
+function casarFatura(compras, L) {
+  const usadoA = new Set(), usadoB = new Set(), r = { ok: 0, dif: [], faltam: [], aMais: [] };
+  const regras = [
+    { motivo: null,       ok: (b, a) => cents(a.valor) === cents(b.valor) && (b.parc ? a.parc && a.parc.i === b.parc.i && a.parc.n === b.parc.n : !a.parc && a.data === b.data) },
+    { motivo: 'data',     ok: (b, a) => cents(a.valor) === cents(b.valor) && !b.parc && !a.parc && diasEntre(a.data, b.data) <= 5 },
+    { motivo: 'parcela',  ok: (b, a) => cents(a.valor) === cents(b.valor) && b.parc && a.parc && a.parc.n === b.parc.n && Math.abs(a.parc.i - b.parc.i) <= 1 && parecido(a.desc, b.desc) > 0 },
+    { motivo: 'tipo',     ok: (b, a) => cents(a.valor) === cents(b.valor) && !!b.parc !== !!a.parc && (parecido(a.desc, b.desc) > 0 || a.data === b.data) },
+    { motivo: 'valor',    ok: (b, a) => Math.abs(a.valor - b.valor) <= 1 && cents(a.valor) !== cents(b.valor) && parecido(a.desc, b.desc) >= 0.34 &&
+                                         (b.parc ? a.parc && a.parc.i === b.parc.i && a.parc.n === b.parc.n : !a.parc && a.data === b.data) }
+  ];
+  regras.forEach(rg => {
+    compras.forEach((b, bi) => {
+      if (usadoB.has(bi)) return;
+      let melhor = null, mp = -1;
+      L.forEach((a, ai) => {
+        if (usadoA.has(ai) || !rg.ok(b, a)) return;
+        const p = parecido(a.desc, b.desc) * 10 - diasEntre(a.data, b.data) / 100;
+        if (p > mp) { mp = p; melhor = ai; }
+      });
+      if (melhor === null) return;
+      usadoA.add(melhor); usadoB.add(bi);
+      if (!rg.motivo) r.ok++; else r.dif.push({ b: b, a: L[melhor], motivo: rg.motivo });
+    });
+  });
+  compras.forEach((b, bi) => { if (!usadoB.has(bi)) r.faltam.push(b); });
+  L.forEach((a, ai) => {
+    if (usadoA.has(ai)) return;
+    const gemeo = L.some((o, oi) => oi !== ai && cents(o.valor) === cents(a.valor) && o.data === a.data && String(parcTxt(o.parc)) === String(parcTxt(a.parc)) && parecido(o.desc, a.desc) >= 0.5);
+    r.aMais.push({ a: a, dup: gemeo });
+  });
+  r.faltam.sort((x, y) => x.data.localeCompare(y.data));
+  return r;
+}
+
+/** Sem texto do banco: lançamentos iguais em data, valor, parcela e descrição. */
+function duplicadosSuspeitos(L) {
+  const g = {};
+  L.forEach(t => { const k = t.data + '|' + cents(t.valor) + '|' + parcTxt(t.parc) + '|' + normaliza(t.desc); (g[k] = g[k] || []).push(t); });
+  return Object.keys(g).map(k => g[k]).filter(x => x.length > 1);
+}
+
+function linhaApp(t, nota) {
+  const c = cat(t.catId);
+  return '<div class="row clic" data-edit="' + t.id + '" tabindex="0"><span class="dot" style="background:' + c.cor + '22;color:' + c.cor + '">' + c.icone + '</span>' +
+    '<span class="t"><b>' + esc(t.desc) + '</b><small>' + dataBR(t.data).slice(0, 5) + ' · ' + esc(parcTxt(t.parc)) + (nota ? ' · ' + nota : '') + '</small></span>' +
+    '<span class="v">' + brl(t.valor) + '</span><span class="del" aria-hidden="true">&rsaquo;</span></div>';
+}
+
+/** Sugere a categoria pelo que você já lançou com nome parecido. */
+function sugereCat(desc) {
+  const hit = D.lanc.filter(t => t.tipo === 'despesa').sort((a, b) => b.data.localeCompare(a.data)).find(t => parecido(t.desc, desc) >= 0.5);
+  return hit ? hit.catId : ((D.cats.find(c => !c.receita) || {}).id);
+}
+
+function blocoConferir(c, cp, L) {
+  const chave = c.id + '|' + cp, ativo = conf.chave === chave;
+  let h = '';
+  const dup = duplicadosSuspeitos(L);
+  if (dup.length) {
+    h += '<div class="card"><h2>Possíveis duplicados <em>' + dup.length + (dup.length === 1 ? ' caso' : ' casos') + '</em></h2>' +
+      '<p class="tiny" style="margin:0 0 6px">Mesma data, valor, parcela e descrição. Toque para abrir e excluir um deles. Se foram duas compras mesmo, ignore.</p>' +
+      dup.map(g => g.map(t => linhaApp(t)).join('')).join('<div class="cf-sep"></div>') + '</div>';
+  }
+  h += '<div class="card" id="conferir"><h2>Conferir com o banco <em>' + L.length + ' lançamento' + (L.length === 1 ? '' : 's') + ' no app</em></h2>';
+  if (!ativo) return h + '<p class="tiny" style="margin:0 0 10px">Cole as compras da fatura do banco para ver o que faltou, o que está a mais e o que está diferente.</p>' +
+    '<button class="ghost" data-cf="abrir" style="margin:0">Conferir esta fatura</button></div>';
+
+  h += '<p class="tiny" style="margin:0 0 8px">Cole só a lista de compras do PDF ou do app do banco, uma por linha. Cabeçalhos, limites e outras informações são ignorados.</p>' +
+    '<textarea id="cf-txt" spellcheck="false" placeholder="02/02 CARREFOUR COM 08/08 CAJAMAR 64,12&#10;15/02 UNITICKET 08/12 Juiz de Fora 53,49">' + esc(conf.txt) + '</textarea>' +
+    '<div class="cf-botoes"><button class="primary" data-cf="rodar">Conferir</button><button class="ghost" data-cf="limpar">Limpar</button><button class="ghost" data-cf="fechar">Fechar</button></div>';
+  if (!conf.txt.trim()) return h + '</div>';
+
+  const p = lerFatura(conf.txt, cp);
+  if (!p.compras.length && !p.incompletas.length)
+    return h + '<div class="empty" style="margin-top:12px"><b>Não reconheci compras no texto</b>Cada linha precisa começar com a data (ex.: 15/02) e terminar com o valor (ex.: 53,49).</div></div>';
+
+  const r = casarFatura(p.compras, L);
+  const falt = r.faltam.filter(b => conf.ign.indexOf(b.chave) < 0);
+  const totB = p.compras.reduce((s, b) => s + b.valor, 0), totA = L.reduce((s, t) => s + t.valor, 0);
+  const dif = Math.round((totB - totA) * 100) / 100;
+  h += '<div class="cf-sum"><div><small>Banco · ' + p.compras.length + ' compras</small><b>' + brl(totB) + '</b></div>' +
+    '<div><small>App · ' + L.length + ' lanç.</small><b>' + brl(totA) + '</b></div>' +
+    '<div class="' + (Math.abs(dif) < 0.005 ? 'good' : 'bad') + '"><small>' + (dif > 0.004 ? 'Faltam no app' : dif < -0.004 ? 'Sobram no app' : 'Diferença') + '</small><b>' + brl(Math.abs(dif)) + '</b></div></div>';
+  if (p.creditos.length) h += '<p class="tiny">' + p.creditos.length + ' pagamento' + (p.creditos.length === 1 ? '' : 's') + '/crédito' + (p.creditos.length === 1 ? '' : 's') + ' no texto não entra' + (p.creditos.length === 1 ? '' : 'm') + ' na comparação.</p>';
+
+  const tudoCerto = !falt.length && !r.dif.length && !r.aMais.length && !p.incompletas.length;
+  if (tudoCerto) h += '<div class="cf-ok">✓ Tudo bate: ' + r.ok + ' compras conferidas.</div>';
+  else h += '<p class="tiny" style="margin-top:8px">' + r.ok + ' compra' + (r.ok === 1 ? '' : 's') + ' conferida' + (r.ok === 1 ? '' : 's') + ' sem diferença.</p>';
+
+  if (falt.length) {
+    h += '<div class="cf-grupo"><h3>Faltou no app <em>' + falt.length + ' · ' + brl(falt.reduce((s, b) => s + b.valor, 0)) + '</em></h3>' +
+      '<p class="tiny">Está no banco e não achei no app.</p>' +
+      falt.map(b => {
+        const i = p.compras.indexOf(b);
+        return '<div class="row"><span class="dot" style="background:var(--ochre-soft);color:var(--ochre)">+</span><span class="t"><b>' + esc(b.desc) + '</b><small>' +
+          dataBR(b.data).slice(0, 5) + ' · ' + esc(parcTxt(b.parc)) + '</small></span><span class="v">' + brl(b.valor) + '</span></div>' +
+          '<div class="cf-acoes"><button class="chip" data-cf-lancar="' + i + '">Lançar</button><button class="chip" data-cf-ign="' + i + '">Ignorar</button></div>';
+      }).join('') + '</div>';
+  }
+  if (r.aMais.length) {
+    h += '<div class="cf-grupo"><h3>A mais no app <em>' + r.aMais.length + ' · ' + brl(r.aMais.reduce((s, x) => s + x.a.valor, 0)) + '</em></h3>' +
+      '<p class="tiny">Está no app e não achei no banco. Toque para abrir ou excluir.</p>' +
+      r.aMais.map(x => linhaApp(x.a, x.dup ? '<b style="color:var(--rust)">parece duplicado</b>' : '')).join('') + '</div>';
+  }
+  if (r.dif.length) {
+    const rot = { data: 'data diferente', parcela: 'parcela diferente', tipo: 'parcelamento diferente', valor: 'valor diferente' };
+    h += '<div class="cf-grupo"><h3>Diferentes <em>' + r.dif.length + '</em></h3><p class="tiny">Achei, mas algo não bate. Toque para abrir o lançamento do app.</p>' +
+      r.dif.map(x => {
+        const d = x.motivo === 'data' ? 'banco ' + dataBR(x.b.data).slice(0, 5) + ' · app ' + dataBR(x.a.data).slice(0, 5)
+          : x.motivo === 'valor' ? 'banco ' + brl(x.b.valor) + ' · app ' + brl(x.a.valor)
+          : 'banco ' + parcTxt(x.b.parc) + ' · app ' + parcTxt(x.a.parc);
+        return linhaApp(x.a, '<b style="color:var(--ochre)">' + rot[x.motivo] + '</b>') + '<p class="tiny" style="margin:-4px 0 8px 44px">' + d + '</p>';
+      }).join('') + '</div>';
+  }
+  if (p.incompletas.length) {
+    h += '<div class="cf-grupo"><h3>Linhas incompletas <em>' + p.incompletas.length + '</em></h3><p class="tiny">Não consegui ler o valor; confira no banco e lance à mão se for compra.</p>' +
+      p.incompletas.map(l => '<p class="tiny" style="margin:0 0 4px;color:var(--ink)">' + esc(l) + '</p>').join('') + '</div>';
+  }
+  if (p.ignoradas) h += '<p class="tiny" style="margin-top:14px">' + p.ignoradas + ' linha' + (p.ignoradas === 1 ? '' : 's') + ' sem data ou sem valor ' + (p.ignoradas === 1 ? 'foi ignorada' : 'foram ignoradas') + '.</p>';
+  return h + '</div>';
+}
+
+function lancarDoBanco(c, cp, b) {
+  const modelo = { tipo: 'despesa', catId: sugereCat(b.desc), meio: 'cartao', cartao: c.id, desc: b.desc, valor: b.valor,
+    data: b.data, dataFixa: b.data, titulo: 'Lançar da fatura', comp: cp };
+  if (b.parc) { modelo.parc = b.parc; modelo.soParcela = true; }
+  sheetLanc(null, modelo);
+}
+
 function vFatura(c, cp) {
   const st = situacao(c, cp), hoje = hojeISO();
   const dias = Math.round((new Date(st.venc + 'T12:00:00') - new Date(hoje + 'T12:00:00')) / 86400000);
@@ -1522,6 +1728,8 @@ function vFatura(c, cp) {
       '<span class="v">' + brl(p.valor) + '</span>' +
       '<button class="del" data-delpag="' + p.id + '">&#10005;</button></div>').join('') + '</div>' : '') +
     '</div>' +
+
+    blocoConferir(c, cp, L) +
 
     (cats.length ? '<div class="card"><h2>Por categoria <em>toque para ver os lançamentos</em></h2>' +
       cats.map(([id, v]) => {
@@ -1720,6 +1928,23 @@ function wire(k) {
     if (catFatura) { const el = document.getElementById('fat-lista'); if (el) el.scrollIntoView({ behavior: reduzMovimento() ? 'auto' : 'smooth', block: 'start' }); }
   });
   document.querySelectorAll('[data-limpacat]').forEach(b => b.onclick = () => { catFatura = null; render(); });
+  const cfTxt = document.getElementById('cf-txt'); if (cfTxt) cfTxt.oninput = () => { conf.txt = cfTxt.value; };
+  document.querySelectorAll('[data-cf]').forEach(b => b.onclick = () => {
+    const a = b.dataset.cf, ch = cartaoAberto + '|' + faturaAberta;
+    if (a === 'abrir') { if (conf.chave !== ch) conf = { chave: ch, txt: '', ign: [] }; conf.chave = ch; }
+    else if (a === 'fechar') conf.chave = null;
+    else if (a === 'limpar') conf = { chave: ch, txt: '', ign: [] };
+    else if (a === 'rodar' && cfTxt) { conf.txt = cfTxt.value; conf.ign = []; }
+    render();
+    const el = document.getElementById('conferir'); if (el && a === 'rodar') el.scrollIntoView({ behavior: reduzMovimento() ? 'auto' : 'smooth', block: 'start' });
+  });
+  document.querySelectorAll('[data-cf-lancar],[data-cf-ign]').forEach(b => b.onclick = () => {
+    const c = cartao(cartaoAberto); if (!c) return;
+    const p = lerFatura(conf.txt, faturaAberta), it = p.compras[Number(b.dataset.cfLancar !== undefined ? b.dataset.cfLancar : b.dataset.cfIgn)];
+    if (!it) return;
+    if (b.dataset.cfIgn !== undefined) { conf.ign.push(it.chave); render(); }
+    else lancarDoBanco(c, faturaAberta, it);
+  });
   const mp = document.getElementById('mais-pagas'); if (mp) mp.onclick = () => { mostrarPagas = !mostrarPagas; render(); };
   const fq = document.getElementById('lf-q');
   if (fq) {
@@ -1839,18 +2064,18 @@ function sheetLanc(editId, modelo) {
   const lembrado = () => { try { const v = localStorage.getItem('caixa_meio'); return meios.some(x => x.id === v) ? v : 'pix'; } catch (e) { return 'pix'; } };
   let meio = m0 ? (m0.meio === 'cartao' && m0.cartao ? 'cartao:' + m0.cartao : m0.meio) : lembrado();
   let escopo = 'uma';
-  let forma = (t && t.parc) ? 'parcelado' : 'avista';
-  let base = 'total';
+  let forma = (m0 && m0.parc) ? 'parcelado' : 'avista';
+  let base = (modelo && modelo.parc && !t) ? 'parcela' : 'total';
 
-  const nOrig = t && t.parc ? t.parc.n : 1;
+  const nOrig = m0 && m0.parc ? m0.parc.n : 1;
   // parcela mais baixa que existe no grupo: um grupo lançado em andamento começa em 5, não em 1
   const iniOrig = (t && t.parc && temGrupo) ? Math.min.apply(null, irmaos.map(x => x.parc ? x.parc.i : 1)) : 1;
-  let inicio = iniOrig;
+  let inicio = (modelo && modelo.parc && !t) ? modelo.parc.i : iniOrig;
   const compGrupo = temGrupo ? irmaos.map(x => x.comp).sort()[0] : null;
   const repOrig = (t && t.fixo && temGrupo) ? irmaos.length : 1;
   const repOpts = [1, 3, 6, 12, 24].indexOf(repOrig) === -1 ? [repOrig, 3, 6, 12, 24] : [1, 3, 6, 12, 24];
 
-  openSheet('<h2>' + (t ? 'Editar lançamento' : confirmando ? 'Confirmar previsto' : modelo ? 'Duplicar lançamento' : 'Novo lançamento') + '</h2>' +
+  openSheet('<h2>' + (t ? 'Editar lançamento' : confirmando ? 'Confirmar previsto' : modelo ? (modelo.titulo || 'Duplicar lançamento') : 'Novo lançamento') + '</h2>' +
 
     (temGrupo ? '<label>O que você quer alterar</label>' +
       '<div class="seg" id="escopo"><button data-escopo="uma" aria-pressed="true">Só esta ' +
@@ -1868,8 +2093,8 @@ function sheetLanc(editId, modelo) {
     '<input id="f-val" class="grande" type="text" inputmode="decimal" placeholder="0,00" autocomplete="off" value="' + (m0 ? brlNum(m0.valor) : '') + '">' +
 
     '<div id="bloco-base" class="hide"><label>O valor que você tem em mãos</label>' +
-    '<div class="seg" id="base"><button data-base="total" aria-pressed="true">Valor total</button>' +
-    '<button data-base="parcela" aria-pressed="false">Valor da parcela</button></div></div>' +
+    '<div class="seg" id="base"><button data-base="total" aria-pressed="' + (base === 'total') + '">Valor total</button>' +
+    '<button data-base="parcela" aria-pressed="' + (base === 'parcela') + '">Valor da parcela</button></div></div>' +
 
     '<label for="f-desc">Descrição</label><input id="f-desc" autocomplete="off" value="' + (m0 ? esc(m0.desc) : '') + '" placeholder="Mercado, Uber, salário…">' +
     '<div class="chips sug hide" id="f-sug"></div>' +
@@ -1887,13 +2112,14 @@ function sheetLanc(editId, modelo) {
     '<div><label for="f-parc">Total de parcelas</label>' +
     '<input id="f-parc" type="number" min="2" max="60" step="1" value="' + (nOrig > 1 ? nOrig : 2) + '"></div></div>' +
     '<p class="tiny" style="margin:7px 0 0">Deixe 1 para uma compra nova. Para uma compra que já está correndo, ' +
-    'informe a parcela que vem agora — as anteriores não são lançadas.</p></div></div>' +
+    'informe a parcela que vem agora — as anteriores não são lançadas.' +
+    (modelo && modelo.soParcela ? ' <b>Será lançada só esta parcela (' + modelo.parc.i + '/' + modelo.parc.n + ').</b>' : '') + '</p></div></div>' +
 
     '<button type="button" class="mais" id="f-mais" aria-expanded="false" aria-controls="mais"><span>Mais opções</span><small id="f-resumo"></small><i>▾</i></button>' +
     '<div id="mais" class="hide">' +
       '<label for="f-data" id="lab-data">Data</label>' +
       '<input id="f-data" type="date" value="' + (t ? t.data : isoPadrao) + '">' +
-      '<input id="f-mes" class="hide" type="month" value="' + (compGrupo || mk(cursor)) + '">' +
+      '<input id="f-mes" class="hide" type="month" value="' + (compGrupo || (modelo && modelo.comp) || mk(cursor)) + '">' +
 
       '<div id="bloco-conta"><label for="f-conta">Conta</label><select id="f-conta">' +
       D.contas.map(c => '<option value="' + c.id + '"' + ((m0 && contaDe(m0) === c.id) ? ' selected' : '') + '>' + esc(c.nome) + '</option>').join('') + '</select></div>' +
@@ -2170,7 +2396,7 @@ function sheetLanc(editId, modelo) {
     const emAndamento = isCartao && n > 1 && ini > 1;
     const rep = (!isCartao || forma === 'avista') ? (parseInt(document.getElementById('f-rep').value) || 1) : 1;
     const dBase = new Date((emAndamento ? (compMes + '-01') : data) + 'T12:00:00');
-    const vezes = n > 1 ? (n - ini + 1) : rep;
+    const vezes = (modelo && modelo.soParcela && !t) ? 1 : (n > 1 ? (n - ini + 1) : rep);
     const grupo = vezes > 1 ? uid() : null;
     // valor da parcela informado é exato; o total é que é derivado. Em andamento é sempre por parcela.
     const vparc = n > 1
